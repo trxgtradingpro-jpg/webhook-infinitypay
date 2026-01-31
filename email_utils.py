@@ -1,37 +1,29 @@
-import smtplib
 import os
-from email.message import EmailMessage
+import resend
 
-EMAIL_REMETENTE = os.getenv("EMAIL_REMETENTE")
-SENHA_APP = os.getenv("EMAIL_SENHA_APP")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+FROM_EMAIL = "onboarding@resend.dev"
 
-SMTP_SERVIDOR = "smtp.gmail.com"
-SMTP_PORTA = 587
+resend.api_key = RESEND_API_KEY
 
 def enviar_email(destinatario, nome_plano, arquivo, senha):
-    msg = EmailMessage()
-    msg["Subject"] = f"Seu plano {nome_plano} – Acesso Liberado"
-    msg["From"] = EMAIL_REMETENTE
-    msg["To"] = destinatario
-
-    msg.set_content(f"""
-Olá,
-
-Seu pagamento foi confirmado com sucesso!
-
-Plano: {nome_plano}
-Senha do arquivo: {senha}
-""")
-
     with open(arquivo, "rb") as f:
-        msg.add_attachment(
-            f.read(),
-            maintype="application",
-            subtype="octet-stream",
-            filename=os.path.basename(arquivo)
-        )
+        conteudo = f.read()
 
-    with smtplib.SMTP(SMTP_SERVIDOR, SMTP_PORTA, timeout=30) as smtp:
-        smtp.starttls()
-        smtp.login(EMAIL_REMETENTE, SENHA_APP)
-        smtp.send_message(msg)
+    resend.Emails.send({
+        "from": FROM_EMAIL,
+        "to": destinatario,
+        "subject": f"Seu plano {nome_plano} – Acesso Liberado",
+        "html": f"""
+        <h2>Pagamento confirmado!</h2>
+        <p><strong>Plano:</strong> {nome_plano}</p>
+        <p><strong>Senha do arquivo:</strong> {senha}</p>
+        <p>Arquivo em anexo.</p>
+        """,
+        "attachments": [
+            {
+                "filename": os.path.basename(arquivo),
+                "content": conteudo
+            }
+        ]
+    })
