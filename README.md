@@ -1,1 +1,1 @@
-# webhook-infinitypay2
+# webhook-infinitypay
