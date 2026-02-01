@@ -10,16 +10,26 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
+    # ================= ORDERS =================
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id SERIAL PRIMARY KEY,
             plano TEXT NOT NULL,
             email TEXT NOT NULL,
-            telefone TEXT NOT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
     """)
 
+    # ---- MIGRAÇÕES AUTOMÁTICAS ----
+
+    # coluna telefone
+    try:
+        cur.execute("ALTER TABLE orders ADD COLUMN telefone TEXT")
+        print("🆕 COLUNA telefone CRIADA", flush=True)
+    except Exception:
+        print("ℹ️ COLUNA telefone JÁ EXISTE", flush=True)
+
+    # ================= PROCESSED =================
     cur.execute("""
         CREATE TABLE IF NOT EXISTS processed (
             transaction_nsu TEXT PRIMARY KEY,
@@ -33,6 +43,7 @@ def init_db():
 
     print("🗄️ POSTGRES CONECTADO E TABELAS OK", flush=True)
 
+# ================= CRUD =================
 
 def salvar_order(plano, email, telefone):
     conn = get_conn()
@@ -47,13 +58,13 @@ def salvar_order(plano, email, telefone):
     cur.close()
     conn.close()
 
-
 def buscar_email_pendente(plano):
     conn = get_conn()
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT email FROM orders
+        SELECT email
+        FROM orders
         WHERE plano = %s
         ORDER BY created_at DESC
         LIMIT 1
@@ -65,8 +76,7 @@ def buscar_email_pendente(plano):
 
     return row[0] if row else None
 
-
-def listar_orders(limit=100):
+def listar_orders(limit=200):
     conn = get_conn()
     cur = conn.cursor()
 
@@ -83,7 +93,6 @@ def listar_orders(limit=100):
 
     return rows
 
-
 def transacao_ja_processada(transaction_nsu):
     conn = get_conn()
     cur = conn.cursor()
@@ -98,7 +107,6 @@ def transacao_ja_processada(transaction_nsu):
     conn.close()
 
     return exists
-
 
 def marcar_processada(transaction_nsu):
     conn = get_conn()
