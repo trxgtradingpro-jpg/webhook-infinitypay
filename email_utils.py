@@ -17,8 +17,8 @@ Obrigado pela sua compra!
 
 ✅ Pagamento confirmado com sucesso.
 
- Plano adquirido: {nome_plano}
- Senha do arquivo: {senha}
+ 📦Plano adquirido: {nome_plano}
+ 🔐Senha do arquivo: {senha}
  
  (IMPORTANTE) entre na comunidade abaixo para informações:
  https://chat.whatsapp.com/KPcaKf6OsaQHG2cUPAU1CE
@@ -44,4 +44,5 @@ Bom uso
     }
 
     requests.post(GOOGLE_EMAIL_WEBHOOK, json=payload, timeout=60)
+
 
