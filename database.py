@@ -3,40 +3,44 @@ import os
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+# ================= CONEXÃO =================
+
 def get_conn():
     return psycopg2.connect(DATABASE_URL, sslmode="require")
+
+
+# ================= INIT DB =================
 
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    # ================= ORDERS =================
+    # ---------- ORDERS ----------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id SERIAL PRIMARY KEY,
             plano TEXT NOT NULL,
             email TEXT NOT NULL,
+            telefone TEXT,
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
     """)
 
-    conn.commit()
+    # ---------- PAYMENTS ----------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS payments (
+            id SERIAL PRIMARY KEY,
+            transaction_nsu TEXT UNIQUE NOT NULL,
+            plano TEXT NOT NULL,
+            email TEXT NOT NULL,
+            valor INTEGER NOT NULL,
+            metodo TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
 
-    # ---- MIGRAÇÕES AUTOMÁTICAS ----
-
-    # coluna telefone (forma correta)
-    try:
-        cur.execute("""
-            ALTER TABLE orders
-            ADD COLUMN IF NOT EXISTS telefone TEXT
-        """)
-        conn.commit()
-        print("ℹ️ COLUNA telefone OK", flush=True)
-    except Exception as e:
-        conn.rollback()
-        print("⚠️ ERRO AO CRIAR COLUNA telefone:", e, flush=True)
-
-    # ================= PROCESSED =================
+    # ---------- PROCESSED (IDEMPOTÊNCIA) ----------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS processed (
             transaction_nsu TEXT PRIMARY KEY,
@@ -50,30 +54,22 @@ def init_db():
 
     print("🗄️ POSTGRES CONECTADO E TABELAS OK", flush=True)
 
-def listar_pagamentos():
-    with sqlite3.connect(DB) as con:
-        cur = con.execute("""
-            SELECT plano, email, valor, metodo, status, created_at
-            FROM orders
-            WHERE processado = 1
-            ORDER BY created_at DESC
-        """)
-        return cur.fetchall()
 
-# ================= CRUD =================
+# ================= ORDERS =================
 
 def salvar_order(plano, email, telefone):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute(
-        "INSERT INTO orders (plano, email, telefone) VALUES (%s, %s, %s)",
-        (plano, email, telefone)
-    )
+    cur.execute("""
+        INSERT INTO orders (plano, email, telefone)
+        VALUES (%s, %s, %s)
+    """, (plano, email, telefone))
 
     conn.commit()
     cur.close()
     conn.close()
+
 
 def buscar_email_pendente(plano):
     conn = get_conn()
@@ -93,6 +89,7 @@ def buscar_email_pendente(plano):
 
     return row[0] if row else None
 
+
 def listar_orders(limit=200):
     conn = get_conn()
     cur = conn.cursor()
@@ -110,14 +107,54 @@ def listar_orders(limit=200):
 
     return rows
 
+
+# ================= PAYMENTS =================
+
+def salvar_pagamento(transaction_nsu, plano, email, valor, metodo):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO payments
+        (transaction_nsu, plano, email, valor, metodo, status)
+        VALUES (%s, %s, %s, %s, %s, 'Pago')
+        ON CONFLICT (transaction_nsu) DO NOTHING
+    """, (transaction_nsu, plano, email, valor, metodo))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def listar_pagamentos(limit=200):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT plano, email, valor, metodo, status, created_at
+        FROM payments
+        ORDER BY created_at DESC
+        LIMIT %s
+    """, (limit,))
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return rows
+
+
+# ================= WEBHOOK CONTROL =================
+
 def transacao_ja_processada(transaction_nsu):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute(
-        "SELECT 1 FROM processed WHERE transaction_nsu = %s",
-        (transaction_nsu,)
-    )
+    cur.execute("""
+        SELECT 1
+        FROM processed
+        WHERE transaction_nsu = %s
+    """, (transaction_nsu,))
 
     exists = cur.fetchone() is not None
     cur.close()
@@ -125,16 +162,17 @@ def transacao_ja_processada(transaction_nsu):
 
     return exists
 
+
 def marcar_processada(transaction_nsu):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute(
-        "INSERT INTO processed (transaction_nsu) VALUES (%s) ON CONFLICT DO NOTHING",
-        (transaction_nsu,)
-    )
+    cur.execute("""
+        INSERT INTO processed (transaction_nsu)
+        VALUES (%s)
+        ON CONFLICT DO NOTHING
+    """, (transaction_nsu,))
 
     conn.commit()
     cur.close()
     conn.close()
-
