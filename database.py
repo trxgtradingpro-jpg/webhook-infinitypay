@@ -20,14 +20,21 @@ def init_db():
         )
     """)
 
+    conn.commit()
+
     # ---- MIGRAÇÕES AUTOMÁTICAS ----
 
-    # coluna telefone
+    # coluna telefone (forma correta)
     try:
-        cur.execute("ALTER TABLE orders ADD COLUMN telefone TEXT")
-        print("🆕 COLUNA telefone CRIADA", flush=True)
-    except Exception:
-        print("ℹ️ COLUNA telefone JÁ EXISTE", flush=True)
+        cur.execute("""
+            ALTER TABLE orders
+            ADD COLUMN IF NOT EXISTS telefone TEXT
+        """)
+        conn.commit()
+        print("ℹ️ COLUNA telefone OK", flush=True)
+    except Exception as e:
+        conn.rollback()
+        print("⚠️ ERRO AO CRIAR COLUNA telefone:", e, flush=True)
 
     # ================= PROCESSED =================
     cur.execute("""
