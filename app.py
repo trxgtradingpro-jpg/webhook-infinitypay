@@ -132,6 +132,11 @@ def webhook():
     return jsonify({"msg": "OK"}), 200
 
 # ================= DASHBOARD =================
+@app.route("/dashboard")
+def dashboard():
+    stats = dashboard_stats()
+    return render_template("dashboard.html", stats=stats)
+
 
 @app.route("/orders")
 def orders():
@@ -154,3 +159,4 @@ def relatorios():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
