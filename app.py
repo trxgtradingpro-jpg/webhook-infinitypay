@@ -117,13 +117,21 @@ def webhook():
 
 # ================= DASHBOARD =================
 
+from datetime import datetime
+
 @app.route("/orders")
 def orders():
     pedidos = listar_orders(200)
-    return render_template("orders.html", orders=pedidos)
+    return render_template(
+        "orders.html",
+        orders=pedidos,
+        year=datetime.now().year
+    )
+
 
 # ================= START =================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
