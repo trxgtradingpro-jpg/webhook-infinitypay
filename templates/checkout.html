@@ -1,0 +1,137 @@
+<div class="checkout-box">
+  <div class="secure">
+    🔒 Compra 100% segura • Pagamento processado pela InfinitePay
+  </div>
+
+  <h2>Finalize sua compra</h2>
+
+  <p class="alert">
+    O acesso será enviado exatamente para o e-mail informado abaixo.
+    Verifique se está correto antes de continuar.
+  </p>
+
+  <form method="POST" action="/comprar">
+    <input
+      type="email"
+      name="email"
+      placeholder="Seu melhor e-mail"
+      required
+    />
+
+    <input
+      type="tel"
+      name="telefone"
+      placeholder="WhatsApp (ex: 11 99999-9999)"
+      required
+    />
+
+    <label class="confirm">
+      <input type="checkbox" required />
+      Confirmo que este é o e-mail correto para receber o acesso
+    </label>
+
+    <button type="submit">Ir para o pagamento seguro</button>
+  </form>
+
+  <div class="trust">
+    <span>🔐 Dados protegidos</span>
+    <span>💳 Checkout InfinitePay</span>
+    <span>📧 Acesso automático</span>
+  </div>
+</div>
+
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f4f6f8;
+  }
+
+  .checkout-box {
+    max-width: 420px;
+    margin: 80px auto;
+    background: #ffffff;
+    padding: 30px 25px;
+    border-radius: 12px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.08);
+    text-align: center;
+  }
+
+  .secure {
+    font-size: 13px;
+    color: #27ae60;
+    background: #f0fbf5;
+    padding: 8px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    font-weight: 600;
+  }
+
+  .checkout-box h2 {
+    margin-bottom: 10px;
+    color: #2c3e50;
+  }
+
+  .alert {
+    background: #fff4f4;
+    color: #c0392b;
+    font-size: 14px;
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+  }
+
+  .checkout-box input {
+    width: 100%;
+    padding: 13px;
+    margin-top: 12px;
+    font-size: 15px;
+    border-radius: 6px;
+    border: 1px solid #dcdfe3;
+    box-sizing: border-box;
+  }
+
+  .checkout-box input:focus {
+    border-color: #27ae60;
+    outline: none;
+  }
+
+  .confirm {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    margin-top: 15px;
+    color: #555;
+    text-align: left;
+  }
+
+  .confirm input {
+    margin-right: 8px;
+  }
+
+  .checkout-box button {
+    margin-top: 22px;
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: bold;
+    background: #27ae60;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .checkout-box button:hover {
+    background: #219150;
+  }
+
+  .trust {
+    display: flex;
+    justify-content: space-around;
+    font-size: 13px;
+    color: #7f8c8d;
+    margin-top: 20px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
