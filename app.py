@@ -1,5 +1,6 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, redirect
 import os
+import uuid
 
 from compactador import compactar_plano
 from email_utils import enviar_email
@@ -27,35 +28,53 @@ PLANOS = {
     "trx-prata-0001":  {"nome": "TRX PRATA",  "pasta": "Licencas/TRX PRATA"},
     "trx-gold-0001":   {"nome": "TRX GOLD",   "pasta": "Licencas/TRX GOLD"},
     "trx-black-0001":  {"nome": "TRX BLACK",  "pasta": "Licencas/TRX BLACK"},
-    "trx-teste-0001":  {"nome": "TRX BLACK",  "pasta": "Licencas/TRX BLACK"}
+    "trx-teste-0001":  {"nome": "TRX TESTE",  "pasta": "Licencas/TRX BRONZE"}
 }
 
 # ======================================================
-# ENDPOINT 1 — SALVAR EMAIL ANTES DO PAGAMENTO
+# PÁGINA DE CHECKOUT (HTML)
 # ======================================================
 
-@app.route("/salvar-email", methods=["POST"])
-def salvar_email():
-    data = request.get_json(silent=True)
+@app.route("/checkout/<plano>")
+def checkout(plano):
+    if plano not in PLANOS:
+        return "Plano inválido", 404
 
-    if not data:
-        return jsonify({"erro": "Payload vazio"}), 400
+    return render_template("checkout.html", plano=plano)
 
-    order_nsu = data.get("order_nsu")
-    email = data.get("email")
+# ======================================================
+# RECEBE EMAIL + TELEFONE E REDIRECIONA PARA PAGAMENTO
+# ======================================================
 
-    if not order_nsu or not email:
-        return jsonify({"erro": "order_nsu ou email ausente"}), 400
+@app.route("/comprar", methods=["POST"])
+def comprar():
+    email = request.form.get("email")
+    telefone = request.form.get("telefone")
+    plano = request.form.get("plano")
 
+    if not email or not telefone or not plano:
+        return "Dados inválidos", 400
+
+    if plano not in PLANOS:
+        return "Plano inválido", 400
+
+    # gera order_nsu único
+    order_nsu = f"{plano}-{uuid.uuid4().hex[:8]}"
+
+    # salva email (e telefone se quiser usar depois)
     salvar_order_email(order_nsu, email)
 
-    print(f"💾 EMAIL SALVO | order_nsu={order_nsu} | email={email}")
+    print(f"🛒 PEDIDO CRIADO | order_nsu={order_nsu} | email={email} | telefone={telefone}")
 
-    return jsonify({"msg": "Email salvo com sucesso"}), 200
+    # 🔴 TROQUE PELO SEU LINK REAL DO CHECKOUT INFINITEPAY
+    CHECKOUT_INFINITEPAY = "https://checkout.infinitepay.io/SEU_LINK_AQUI"
 
+    checkout_url = f"{CHECKOUT_INFINITEPAY}?order_nsu={order_nsu}"
+
+    return redirect(checkout_url)
 
 # ======================================================
-# ENDPOINT 2 — WEBHOOK INFINITEPAY (PAGAMENTO APROVADO)
+# WEBHOOK INFINITEPAY (PAGAMENTO APROVADO)
 # ======================================================
 
 @app.route("/webhook/infinitypay", methods=["POST"])
@@ -91,7 +110,7 @@ def webhook():
     email = buscar_email(order_nsu)
 
     if not email:
-        print("❌ Email não encontrado para order_nsu:", order_nsu)
+        print("❌ Email não encontrado para:", order_nsu)
         return jsonify({"msg": "Email não encontrado"}), 200
 
     plano = PLANOS[order_nsu]
@@ -124,7 +143,6 @@ def webhook():
             os.remove(arquivo)
 
     return jsonify({"msg": "OK"}), 200
-
 
 # ================= START =================
 
