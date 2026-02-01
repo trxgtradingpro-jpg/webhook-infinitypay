@@ -8,7 +8,12 @@ app = Flask(__name__)
 
 # ================= PLANOS =================
 PLANOS = {
-    "chk_abc123": {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"}
+    "chk_abc123": {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"},
+    "chk_def456": {"nome": "TRX PRATA", "pasta": "Licencas/TRX PRATA"},
+    "chk_ghi789": {"nome": "TRX GOLD", "pasta": "Licencas/TRX GOLD"},
+    "chk_jkl000": {"nome": "TRX BLACK", "pasta": "Licencas/TRX BLACK"},
+
+    "chk_teste": {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"}
 }
 # ==========================================
 
