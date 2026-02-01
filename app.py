@@ -27,13 +27,15 @@ PLANOS = {
     "trx-prata-0001":  {"nome": "TRX PRATA",  "pasta": "Licencas/TRX PRATA"},
     "trx-gold-0001":   {"nome": "TRX GOLD",   "pasta": "Licencas/TRX GOLD"},
     "trx-black-0001":  {"nome": "TRX BLACK",  "pasta": "Licencas/TRX BLACK"},
+    "trx-teste-0001":  {"nome": "TRX BLACK",  "pasta": "Licencas/TRX BLACK"},
 }
 
 CHECKOUT_LINKS = {
-    "trx-bronze-0001": "SEU_LINK_BRONZE",
-    "trx-prata-0001":  "SEU_LINK_PRATA",
-    "trx-gold-0001":   "SEU_LINK_GOLD",
-    "trx-black-0001":  "SEU_LINK_BLACK",
+    "trx-bronze-0001": "https://checkout.infinitepay.io/guilherme-gomes-v85/3ZqH9FFEkL",
+    "trx-prata-0001":  "https://checkout.infinitepay.io/guilherme-gomes-v85/79gZN80wGp",
+    "trx-gold-0001":   "https://checkout.infinitepay.io/guilherme-gomes-v85/ayMFQnAMR",
+    "trx-black-0001":  "https://checkout.infinitepay.io/guilherme-gomes-v85/OeFp5epL5",
+    "trx-teste-0001":  "https://checkout.infinitepay.io/guilherme-gomes-v85/OeFp5epL5",
 }
 
 # ================= CHECKOUT =================
@@ -163,5 +165,6 @@ def orders():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
