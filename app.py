@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template, redirect
 import os
 import uuid
+import json
 
 from compactador import compactar_plano
 from email_utils import enviar_email
@@ -36,7 +37,7 @@ PLANOS = {
 }
 
 # ======================================================
-# LINKS CHECKOUT INFINITEPAY (SEUS LINKS REAIS)
+# LINKS CHECKOUT INFINITEPAY (SEUS LINKS)
 # ======================================================
 
 CHECKOUT_LINKS = {
@@ -66,35 +67,17 @@ def comprar():
     if not email or not telefone or plano not in PLANOS:
         return "Dados inválidos", 400
 
-    # referência interna estável (nossa)
     reference = f"{plano}-{uuid.uuid4().hex[:10]}"
-
     salvar_order_email(reference, email)
 
-    print(f"🛒 CHECKOUT CRIADO | ref={reference} | email={email} | telefone={telefone}")
+    print(f"🛒 CHECKOUT | ref={reference} | email={email} | telefone={telefone}")
 
-    checkout_base = CHECKOUT_LINKS[plano]
-    checkout_url = f"{checkout_base}&reference={reference}"
-
+    checkout_url = f"{CHECKOUT_LINKS[plano]}&reference={reference}"
     return redirect(checkout_url)
 
 # ======================================================
-# WEBHOOK INFINITEPAY (BLINDADO)
+# WEBHOOK INFINITEPAY (FORÇADO / BLINDADO)
 # ======================================================
-@app.route("/orders")
-def debug_orders():
-    import sqlite3
-
-    conn = sqlite3.connect("database.db")
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-
-    c.execute("SELECT * FROM orders ORDER BY created_at DESC")
-    rows = c.fetchall()
-
-    conn.close()
-
-    return jsonify([dict(row) for row in rows])
 
 @app.route("/webhook/infinitypay", methods=["POST"])
 def webhook():
@@ -103,18 +86,19 @@ def webhook():
     raw = request.data.decode("utf-8", errors="ignore")
     print("🧾 RAW BODY:", raw)
 
-    data = request.get_json(force=True, silent=True)
+    if not raw:
+        return jsonify({"msg": "Body vazio"}), 200
+
+    try:
+        data = json.loads(raw)
+    except Exception as e:
+        print("❌ JSON inválido:", e)
+        return jsonify({"msg": "JSON inválido"}), 200
+
     print("📦 JSON:", data)
 
-    if not data:
-        return jsonify({"msg": "Payload inválido"}), 200
-
     transaction_nsu = data.get("transaction_nsu") or data.get("id")
-    reference = (
-        data.get("reference")
-        or data.get("invoice_slug")
-        or data.get("order_nsu")
-    )
+    reference = data.get("reference") or data.get("invoice_slug") or data.get("order_nsu")
     paid_amount = data.get("paid_amount") or data.get("amount") or 0
 
     print("🔑 transaction_nsu:", transaction_nsu)
@@ -154,10 +138,10 @@ def webhook():
         )
 
         marcar_processada(transaction_nsu)
-        print("✅ EMAIL ENVIADO")
+        print("✅ EMAIL ENVIADO COM SUCESSO")
 
     except Exception as e:
-        print("❌ ERRO:", str(e))
+        print("❌ ERRO:", e)
         return jsonify({"msg": "Erro interno"}), 500
 
     finally:
@@ -174,5 +158,3 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-
