@@ -8,21 +8,21 @@ def enviar_email(destinatario, nome_plano, arquivo, senha):
     with open(arquivo, "rb") as f:
         arquivo_base64 = base64.b64encode(f.read()).decode("utf-8")
 
-    mensagem = f"""Olá 👋
+    mensagem = f"""Olá 
 
 Obrigado pela sua compra!
 
 ✅ Pagamento confirmado com sucesso.
 
-📦 Plano adquirido: {nome_plano}
-🔐 Senha do arquivo: {senha}
+ Plano adquirido: {nome_plano}
+ Senha do arquivo: {senha}
 
-📢 IMPORTANTE — ENTRE NA COMUNIDADE OFICIAL
+ IMPORTANTE — ENTRE NA COMUNIDADE OFICIAL
 Para receber avisos, atualizações e suporte, entre no grupo abaixo:
 
-👉 https://chat.whatsapp.com/KPcaKf6OsaQHG2cUPAU1CE
+ https://chat.whatsapp.com/KPcaKf6OsaQHG2cUPAU1CE
 
-📎 O arquivo do seu plano está em anexo logo abaixo neste email.
+ O arquivo do seu plano está em anexo logo abaixo neste email.
 
 ⚠️ Importante:
 – Guarde sua senha
@@ -33,7 +33,7 @@ Email: trxtradingpro@gmail.com
 WhatsApp: +55 11 98175-9207  
 WhatsApp 2: +55 11 94043-1906  
 
-Bom uso 🚀
+Bom uso 
 """
 
     payload = {
@@ -45,3 +45,4 @@ Bom uso 🚀
     }
 
     requests.post(GOOGLE_EMAIL_WEBHOOK, json=payload, timeout=60)
+
