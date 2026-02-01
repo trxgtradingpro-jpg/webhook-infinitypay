@@ -1,73 +1,103 @@
 import sqlite3
+from datetime import datetime
 
-DB_NAME = "orders.db"
+DB_PATH = "database.db"
+
 
 def get_conn():
-    return sqlite3.connect(DB_NAME, check_same_thread=False)
+    return sqlite3.connect(DB_PATH)
+
 
 def init_db():
     conn = get_conn()
     c = conn.cursor()
 
+    # TABELA DE PEDIDOS (email antes do pagamento)
     c.execute("""
         CREATE TABLE IF NOT EXISTS orders (
-            order_nsu TEXT PRIMARY KEY,
+            reference TEXT PRIMARY KEY,
             email TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT NOT NULL
         )
     """)
 
+    # TABELA DE TRANSAÇÕES PROCESSADAS
     c.execute("""
         CREATE TABLE IF NOT EXISTS processed (
-            transaction_nsu TEXT PRIMARY KEY
+            transaction_nsu TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL
         )
     """)
 
     conn.commit()
     conn.close()
 
+    print("🗄️ BANCO INICIALIZADO COM SUCESSO")
 
-def salvar_order_email(order_nsu, email):
+
+# ======================================================
+# ORDERS
+# ======================================================
+
+def salvar_order_email(reference, email):
     conn = get_conn()
     c = conn.cursor()
+
     c.execute(
-        "INSERT OR REPLACE INTO orders (order_nsu, email) VALUES (?, ?)",
-        (order_nsu, email)
+        "INSERT OR REPLACE INTO orders (reference, email, created_at) VALUES (?, ?, ?)",
+        (reference, email, datetime.utcnow().isoformat())
     )
+
     conn.commit()
     conn.close()
 
+    print(f"💾 BANCO | SALVO reference={reference} email={email}")
 
-def buscar_email(order_nsu):
+
+def buscar_email(reference):
     conn = get_conn()
     c = conn.cursor()
+
     c.execute(
-        "SELECT email FROM orders WHERE order_nsu = ?",
-        (order_nsu,)
+        "SELECT email FROM orders WHERE reference = ?",
+        (reference,)
     )
+
     row = c.fetchone()
     conn.close()
+
     return row[0] if row else None
 
+
+# ======================================================
+# TRANSAÇÕES PROCESSADAS
+# ======================================================
 
 def transacao_ja_processada(transaction_nsu):
     conn = get_conn()
     c = conn.cursor()
+
     c.execute(
         "SELECT 1 FROM processed WHERE transaction_nsu = ?",
         (transaction_nsu,)
     )
-    existe = c.fetchone() is not None
+
+    exists = c.fetchone() is not None
     conn.close()
-    return existe
+
+    return exists
 
 
 def marcar_processada(transaction_nsu):
     conn = get_conn()
     c = conn.cursor()
+
     c.execute(
-        "INSERT OR IGNORE INTO processed (transaction_nsu) VALUES (?)",
-        (transaction_nsu,)
+        "INSERT OR IGNORE INTO processed (transaction_nsu, created_at) VALUES (?, ?)",
+        (transaction_nsu, datetime.utcnow().isoformat())
     )
+
     conn.commit()
     conn.close()
+
+    print(f"✅ TRANSAÇÃO MARCADA COMO PROCESSADA: {transaction_nsu}")
