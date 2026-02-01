@@ -60,20 +60,31 @@ def checkout(plano):
 
 @app.route("/comprar", methods=["POST"])
 def comprar():
+    print("➡️ /comprar CHAMADO")
+
     email = request.form.get("email")
     telefone = request.form.get("telefone")
     plano = request.form.get("plano")
 
+    print("📩 DADOS RECEBIDOS:", email, telefone, plano)
+
     if not email or not telefone or plano not in PLANOS:
+        print("❌ DADOS INVÁLIDOS")
         return "Dados inválidos", 400
 
     reference = f"{plano}-{uuid.uuid4().hex[:10]}"
+
+    print("🔑 REFERENCE GERADO:", reference)
+
     salvar_order_email(reference, email)
 
-    print(f"🛒 CHECKOUT | ref={reference} | email={email} | telefone={telefone}")
+    print("💾 SALVO NO BANCO:", reference, email)
 
     checkout_url = f"{CHECKOUT_LINKS[plano]}&reference={reference}"
+    print("➡️ REDIRECIONANDO PARA:", checkout_url)
+
     return redirect(checkout_url)
+
 
 # ======================================================
 # WEBHOOK INFINITEPAY (FORÇADO / BLINDADO)
@@ -158,3 +169,4 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
