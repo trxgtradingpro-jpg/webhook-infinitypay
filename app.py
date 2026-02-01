@@ -12,8 +12,7 @@ PLANOS = {
     "chk_def456": {"nome": "TRX PRATA", "pasta": "Licencas/TRX PRATA"},
     "chk_ghi789": {"nome": "TRX GOLD", "pasta": "Licencas/TRX GOLD"},
     "chk_jkl000": {"nome": "TRX BLACK", "pasta": "Licencas/TRX BLACK"},
-
-    "chk_teste": {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"}
+    "chk_teste":  {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"}
 }
 # ==========================================
 
@@ -21,25 +20,18 @@ PASTA_SAIDA = "saida"
 ARQUIVO_PROCESSADOS = "processados.json"
 
 
-def pagamento_ja_processado(pagamento_id):
+def carregar_processados():
     if not os.path.exists(ARQUIVO_PROCESSADOS):
-        return False
+        return []
 
-    with open(ARQUIVO_PROCESSADOS, "r", encoding="utf-8") as f:
-        processados = json.load(f)
-
-    return pagamento_id in processados
-
-
-def marcar_pagamento_processado(pagamento_id):
-    if os.path.exists(ARQUIVO_PROCESSADOS):
+    try:
         with open(ARQUIVO_PROCESSADOS, "r", encoding="utf-8") as f:
-            processados = json.load(f)
-    else:
-        processados = []
+            return json.load(f)
+    except Exception:
+        return []
 
-    processados.append(pagamento_id)
 
+def salvar_processados(processados):
     with open(ARQUIVO_PROCESSADOS, "w", encoding="utf-8") as f:
         json.dump(processados, f)
 
@@ -55,10 +47,10 @@ def webhook():
     if data.get("status") != "paid":
         return jsonify({"msg": "Pagamento não aprovado"}), 200
 
-    # ID único do pagamento (fallback seguro)
     pagamento_id = data.get("id") or data.get("transaction_id")
+    processados = carregar_processados()
 
-    if pagamento_id and pagamento_ja_processado(pagamento_id):
+    if pagamento_id and pagamento_id in processados:
         return jsonify({"msg": "Pagamento já processado"}), 200
 
     plano_id = data.get("product_id")
@@ -89,7 +81,8 @@ def webhook():
 
     # Marca pagamento como processado
     if pagamento_id:
-        marcar_pagamento_processado(pagamento_id)
+        processados.append(pagamento_id)
+        salvar_processados(processados)
 
     # Remove o ZIP após envio
     try:
