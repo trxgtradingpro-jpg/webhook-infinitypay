@@ -56,6 +56,10 @@ def webhook():
         arquivo=arquivo,
         senha=senha
     )
+    import os
+
+    os.remove(arquivo)
+
 
     return jsonify({"msg": "Plano enviado com sucesso"}), 200
 
@@ -71,5 +75,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
+
 
 
