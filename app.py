@@ -1,16 +1,19 @@
 from flask import Flask, request, jsonify, render_template, redirect
 import os
 import json
+import uuid
+import requests
 
 from compactador import compactar_plano
 from email_utils import enviar_email
 
 from database import (
     init_db,
-    salvar_order_email,
-    buscar_email_pendente,
+    salvar_order,
+    buscar_order_por_id,
+    marcar_order_processada,
     transacao_ja_processada,
-    marcar_processada
+    marcar_transacao_processada
 )
 
 print("🚀 APP INICIADO", flush=True)
@@ -26,37 +29,70 @@ PASTA_SAIDA = "saida"
 os.makedirs(PASTA_SAIDA, exist_ok=True)
 
 # ======================================================
+# INFINITEPAY CONFIG
+# ======================================================
+
+INFINITEPAY_URL = "https://api.infinitepay.io/invoices/public/checkout/links"
+HANDLE = "guilherme-gomes-v85"
+WEBHOOK_URL = "https://webhook-infinitypay.onrender.com/webhook/infinitypay"
+
+# ======================================================
 # PLANOS
 # ======================================================
 
 PLANOS = {
-    "trx-bronze-0001": {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"},
-    "trx-prata-0001":  {"nome": "TRX PRATA",  "pasta": "Licencas/TRX PRATA"},
-    "trx-gold-0001":   {"nome": "TRX GOLD",   "pasta": "Licencas/TRX GOLD"},
-    "trx-black-0001":  {"nome": "TRX BLACK",  "pasta": "Licencas/TRX BLACK"},
-    "trx_teste-0001":  {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"},
+    "trx-bronze-0001": {
+        "nome": "TRX BRONZE",
+        "pasta": "Licencas/TRX BRONZE",
+        "preco": 19700
+    },
+    "trx-prata-0001": {
+        "nome": "TRX PRATA",
+        "pasta": "Licencas/TRX PRATA",
+        "preco": 25000
+    },
+    "trx-gold-0001": {
+        "nome": "TRX GOLD",
+        "pasta": "Licencas/TRX GOLD",
+        "preco": 49900
+    },
+    "trx-black-0001": {
+        "nome": "TRX BLACK",
+        "pasta": "Licencas/TRX BLACK",
+        "preco": 70000
+    }
 }
 
 # ======================================================
-# LINKS DE CHECKOUT – INFINITEPAY (SEUS LINKS)
+# CHECKOUT DINÂMICO
 # ======================================================
 
-CHECKOUT_LINKS = {
-    "trx-bronze-0001": "https://checkout.infinitepay.io/guilherme-gomes-v85?lenc=G_4AAKwOeFPWKZHaGgwrtbnxQhkv4KiDhArJwQYcaqpRqvPtJldWd-Ka92SNWfqci-iv0AFNIEN450spoppyYt12BDblKb-w3Wh3QRBzoAF3WVbgNnyOMGIo_VHrdXTVr-4mjB9RGT4I3E0xxinog89v3-nnq9k4WI_xqbseh3gitacdu-0yKWBPNv-wrxDnS0kNlKGhD3TRjVv9hQtQ2Qt5HgE9LshJE9Ol6eTcyux5qHtNN5i57nIOaCrc8LnJfDOPcq-fE3GMYrImTAI.v1.a98160e86dffbbf6",
-    "trx-prata-0001":  "https://checkout.infinitepay.io/guilherme-gomes-v85?lenc=G_sAYCwOeBPrIb6xgbiDxUfFa9OglERQhU451CSSlkiU6uF05sNEDozSoO1Kn7p5IcwFGOY_2psDSmBMSrjzOggEa-zTA0s55VpBZW1BcOaDHvi73X6oGy4bpOuxS32Gg9APyOr2aRrIokINIhmwq8Zvr78wCdwqdUk_T92a7BQupGOeph9JLFTzZ_4BjoelldjGuABtyS8ef8oyBDU49LMgo_WLHKTp0GXZ8-RXDw7yPK4BhnhvZKgXZmEzFmikqlbUIM3ANA.v1.7267bbf4bfa06f94",
-    "trx-gold-0001":   "https://checkout.infinitepay.io/guilherme-gomes-v85?lenc=G_gAQIzDOCYcJweLYqmDiKQKTVzzyzRLMC0q-IFeoDfahHe-bUdgU57yCxvuCoIgDiijQANOs0A3fS5VJFb2j9Y_UVi11Sq74d23M7rpRAmCPDT--0ZDksdBWwRoVBVBh44Cu5P2bb3ukeBOtf965AUwLjXTN9XybhEP1tDmf-bvp6yC2EZAlgU5Ll9UHA1PyqdyRy-pXlPgxlWVzQBF0y80KcOkTPqldhasKpWi81gLxgE.v1.6ff188236f431871",
-    "trx-black-0001":  "https://checkout.infinitepay.io/guilherme-gomes-v85?lenc=G_8AAJwHdsOHUA81Ig9NGxGrMCiDClfBOdaKvQgywZqeP3XzQvhlLcFp3xiTA0pgTAos77yGqSGSsu0IbMpTfmHDrjAoLLBMAg04zXIbOyOUEKN2WPo6KLrStGruuuwBaQIMWWz-e7wmiH2nTBzgZYlTgZZ1Flun8UaSmFnY_r1aQ9-ltcxR8zWZB9os_rn_T9kJiY6AYgtyZOHIQJDgLLUMBezMXZazs3NMP8uiViAq8AIBbpAG9ZAbAyyW0ZyMhBE.v1.6236e5c27ab6a662",
-    "trx_teste-0001":  "https://checkout.infinitepay.io/guilherme-gomes-v85?lenc=G_wAACwOePNZgFM5YemHyoyWkDN24lKqphA24AAs0lSD6XKTGzm3I2QJ3qNKD3SBDKM75UgjrRWn3_X0bUdgU57yCxtuF4YcaaB13QVZbmO3H0aI0g_b70NCr1KYFWee1lJuZLkBIlXoqPPfZxWObxtpYIBWFBgZWDINbHvf5UkCA7Mx3CicV9FAymZpTqSi_1P_n7ISEh0BxRbksISrCFTTKGwN2HEwe_o-2ipDtaPI2wOCAi_QYTqhkzex0kDSi0yyIQwD.v1.da2465697b6d205b",
-}
+def criar_checkout_dinamico(plano_id, order_id):
+    plano = PLANOS[plano_id]
+
+    payload = {
+        "handle": HANDLE,
+        "webhook_url": WEBHOOK_URL,
+        "order_nsu": order_id,
+        "items": [
+            {
+                "description": plano["nome"],
+                "quantity": 1,
+                "price": plano["preco"]
+            }
+        ]
+    }
+
+    r = requests.post(INFINITEPAY_URL, json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()["url"]
 
 # ======================================================
-# CHECKOUT (ANTES DO PAGAMENTO)
+# ROTAS
 # ======================================================
 
 @app.route("/checkout/<plano>")
 def checkout(plano):
-    print(f"🛒 CHECKOUT ABERTO | plano={plano}", flush=True)
-
     if plano not in PLANOS:
         return "Plano inválido", 404
 
@@ -65,32 +101,33 @@ def checkout(plano):
 
 @app.route("/comprar", methods=["POST"])
 def comprar():
-    print("➡️ /comprar CHAMADO", flush=True)
-
     email = request.form.get("email")
-    plano = request.form.get("plano")
+    plano_id = request.form.get("plano")
 
-    if not email or plano not in PLANOS:
-        print("❌ DADOS INVÁLIDOS", flush=True)
+    if not email or plano_id not in PLANOS:
         return "Dados inválidos", 400
 
-    salvar_order_email(plano, email)
+    order_id = str(uuid.uuid4())
 
-    print(f"💾 EMAIL SALVO | plano={plano} | email={email}", flush=True)
-    print("➡️ REDIRECIONANDO PARA INFINITEPAY", flush=True)
+    salvar_order(
+        order_id=order_id,
+        plano=plano_id,
+        email=email
+    )
 
-    return redirect(CHECKOUT_LINKS[plano])
+    checkout_url = criar_checkout_dinamico(plano_id, order_id)
+
+    print(f"🧾 ORDER {order_id} criado para {email}", flush=True)
+    return redirect(checkout_url)
 
 # ======================================================
-# WEBHOOK INFINITEPAY (PAGAMENTO CONFIRMADO)
+# WEBHOOK INFINITEPAY
 # ======================================================
 
 @app.route("/webhook/infinitypay", methods=["POST"])
 def webhook():
-    print("\n================ WEBHOOK ================", flush=True)
-
     raw = request.data.decode("utf-8", errors="ignore")
-    print("🧾 RAW:", raw, flush=True)
+    print("🧾 WEBHOOK:", raw, flush=True)
 
     if not raw:
         return jsonify({"msg": "Body vazio"}), 200
@@ -98,56 +135,45 @@ def webhook():
     data = json.loads(raw)
 
     transaction_nsu = data.get("transaction_nsu")
-    plano = data.get("order_nsu")
+    order_id = data.get("order_nsu")
     paid_amount = data.get("paid_amount", 0)
 
-    print("🔑 transaction_nsu:", transaction_nsu, flush=True)
-    print("📦 plano (order_nsu):", plano, flush=True)
-    print("💰 paid_amount:", paid_amount, flush=True)
-
-    if not transaction_nsu or not plano:
+    if not transaction_nsu or not order_id:
         return jsonify({"msg": "Evento incompleto"}), 200
 
     if paid_amount <= 0:
         return jsonify({"msg": "Pagamento não confirmado"}), 200
 
     if transacao_ja_processada(transaction_nsu):
-        print("🔁 JÁ PROCESSADO", flush=True)
         return jsonify({"msg": "Já processado"}), 200
 
-    if plano not in PLANOS:
-        print("❌ PLANO NÃO CADASTRADO", flush=True)
-        return jsonify({"msg": "Plano inválido"}), 200
+    order = buscar_order_por_id(order_id)
+    if not order or order["status"] != "PENDENTE":
+        return jsonify({"msg": "Pedido inválido"}), 200
 
-    email = buscar_email_pendente(plano)
-    print("📧 EMAIL ENCONTRADO:", email, flush=True)
-
-    if not email:
-        return jsonify({"msg": "Email não encontrado"}), 200
-
-    plano_info = PLANOS[plano]
+    plano_info = PLANOS[order["plano"]]
     arquivo = None
 
     try:
         arquivo, senha = compactar_plano(plano_info["pasta"], PASTA_SAIDA)
 
         enviar_email(
-            destinatario=email,
+            destinatario=order["email"],
             nome_plano=plano_info["nome"],
             arquivo=arquivo,
             senha=senha
         )
 
-        marcar_processada(transaction_nsu)
-        print("✅ EMAIL ENVIADO COM SUCESSO", flush=True)
+        marcar_order_processada(order_id)
+        marcar_transacao_processada(transaction_nsu)
+
+        print("✅ EMAIL ENVIADO", flush=True)
 
     finally:
         if arquivo and os.path.exists(arquivo):
             os.remove(arquivo)
 
-    print("================ FIM WEBHOOK ================\n", flush=True)
     return jsonify({"msg": "OK"}), 200
-
 
 # ======================================================
 # START
