@@ -8,11 +8,11 @@ app = Flask(__name__)
 
 # ================= PLANOS =================
 PLANOS = {
-    "chk_abc123": {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"},
-    "chk_def456": {"nome": "TRX PRATA", "pasta": "Licencas/TRX PRATA"},
-    "chk_ghi789": {"nome": "TRX GOLD", "pasta": "Licencas/TRX GOLD"},
-    "chk_jkl000": {"nome": "TRX BLACK", "pasta": "Licencas/TRX BLACK"},
-    "chk_teste":  {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"}
+    "trx-bronze-0001": {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"},
+    "trx-prata-0001": {"nome": "TRX PRATA", "pasta": "Licencas/TRX PRATA"},
+    "trx-gold-0001": {"nome": "TRX GOLD", "pasta": "Licencas/TRX GOLD"},
+    "trx-black-0001": {"nome": "TRX BLACK", "pasta": "Licencas/TRX BLACK"},
+    "trx_teste-0001":  {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"}
 }
 # ==========================================
 
@@ -97,3 +97,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     os.makedirs(PASTA_SAIDA, exist_ok=True)
     app.run(host="0.0.0.0", port=port)
+
