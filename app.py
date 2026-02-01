@@ -11,12 +11,11 @@ from database import (
     listar_pagamentos,
     salvar_pagamento,
     transacao_ja_processada,
-    marcar_processada
+    marcar_processada,
+    dashboard_stats
 )
 
 print("🚀 APP INICIADO", flush=True)
-
-# ================= APP =================
 
 app = Flask(__name__)
 init_db()
@@ -46,7 +45,6 @@ CHECKOUT_LINKS = {
 
 @app.route("/checkout/<plano>")
 def checkout(plano):
-    print(f"🛒 CHECKOUT ABERTO | plano={plano}", flush=True)
     if plano not in PLANOS:
         return "Plano inválido", 404
     return render_template("checkout.html", plano=plano)
@@ -54,8 +52,6 @@ def checkout(plano):
 
 @app.route("/comprar", methods=["POST"])
 def comprar():
-    print("➡️ /comprar CHAMADO", flush=True)
-
     email = request.form.get("email")
     telefone = request.form.get("telefone")
     plano = request.form.get("plano")
@@ -64,16 +60,12 @@ def comprar():
         return "Dados inválidos", 400
 
     salvar_order(plano, email, telefone)
-    print(f"💾 ORDER SALVO | {plano} | {email}", flush=True)
-
     return redirect(CHECKOUT_LINKS[plano])
 
 # ================= WEBHOOK =================
 
 @app.route("/webhook/infinitypay", methods=["POST"])
 def webhook():
-    print("\n================ WEBHOOK ================", flush=True)
-
     data = request.get_json(force=True, silent=True)
     if not data:
         return jsonify({"msg": "Payload vazio"}), 200
@@ -90,7 +82,6 @@ def webhook():
         return jsonify({"msg": "Já processado"}), 200
 
     if plano not in PLANOS:
-        print("🚫 PLANO NÃO CADASTRADO", flush=True)
         return jsonify({"msg": "Plano inválido"}), 200
 
     email = buscar_email_pendente(plano)
@@ -101,19 +92,9 @@ def webhook():
     arquivo = None
 
     try:
-        # 🔹 salvar pagamento no banco
-        salvar_pagamento(
-            transaction_nsu=transaction_nsu,
-            plano=plano,
-            email=email,
-            valor=paid_amount,
-            metodo=metodo
-        )
-
-        # 🔹 gerar arquivo
+        salvar_pagamento(transaction_nsu, plano, email, paid_amount, metodo)
         arquivo, senha = compactar_plano(plano_info["pasta"], PASTA_SAIDA)
 
-        # 🔹 enviar email
         enviar_email(
             destinatario=email,
             nome_plano=plano_info["nome"],
@@ -122,26 +103,19 @@ def webhook():
         )
 
         marcar_processada(transaction_nsu)
-        print("✅ EMAIL E PAGAMENTO PROCESSADOS", flush=True)
 
     finally:
         if arquivo and os.path.exists(arquivo):
             os.remove(arquivo)
 
-    print("================ FIM WEBHOOK ================\n", flush=True)
     return jsonify({"msg": "OK"}), 200
 
 # ================= DASHBOARD =================
+
 @app.route("/dashboard")
 def dashboard():
     stats = dashboard_stats()
     return render_template("dashboard.html", stats=stats)
-
-
-@app.route("/orders")
-def orders():
-    pedidos = listar_orders(200)
-    return render_template("orders.html", orders=pedidos)
 
 
 @app.route("/pagamentos")
@@ -150,13 +124,14 @@ def pagamentos():
     return render_template("pagamentos.html", transacoes=transacoes)
 
 
-@app.route("/relatorios")
-def relatorios():
-    return render_template("relatorios.html")
+@app.route("/orders")
+def orders():
+    pedidos = listar_orders(200)
+    return render_template("orders.html", orders=pedidos)
+
 
 # ================= START =================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
