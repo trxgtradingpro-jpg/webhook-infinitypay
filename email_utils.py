@@ -21,7 +21,6 @@ Obrigado pela sua compra!
  🔐Senha do arquivo: {senha}
  
  (IMPORTANTE) entre na comunidade abaixo para informações:
- https://chat.whatsapp.com/KPcaKf6OsaQHG2cUPAU1CE
  
  O arquivo do seu plano está em anexo logo abaixo neste email.
 
@@ -44,5 +43,6 @@ Bom uso
     }
 
     requests.post(GOOGLE_EMAIL_WEBHOOK, json=payload, timeout=60)
+
 
 
