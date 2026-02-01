@@ -7,7 +7,6 @@ import json
 app = Flask(__name__)
 
 # ================= PLANOS =================
-# A chave É O order_nsu enviado pela InfinitePay
 PLANOS = {
     "trx-bronze-0001": {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"},
     "trx-prata-0001":  {"nome": "TRX PRATA",  "pasta": "Licencas/TRX PRATA"},
@@ -15,13 +14,12 @@ PLANOS = {
     "trx-black-0001":  {"nome": "TRX BLACK",  "pasta": "Licencas/TRX BLACK"},
     "trx_teste-0001":  {"nome": "TRX BRONZE", "pasta": "Licencas/TRX BRONZE"}
 }
-# ==========================================
 
 PASTA_SAIDA = "saida"
 ARQUIVO_PROCESSADOS = "processados.json"
 
 
-# ---------------- UTILIDADES ----------------
+# ---------------- UTIL ----------------
 
 def carregar_processados():
     if not os.path.exists(ARQUIVO_PROCESSADOS):
@@ -51,48 +49,40 @@ def webhook():
     if not data:
         return jsonify({"msg": "Payload vazio"}), 200
 
-    # Apenas pagamentos confirmados
     if data.get("status") != "paid":
         return jsonify({"msg": "Evento ignorado"}), 200
 
-    pagamento_id = data.get("id") or data.get("transaction_id")
     order_nsu = data.get("order_nsu")
+    transaction_nsu = data.get("transaction_nsu")
 
     cliente = data.get("customer", {})
     email = cliente.get("email")
 
-    # Eventos incompletos → ignora com 200
-    if not pagamento_id or not order_nsu or not email:
-        print("⚠️ Evento incompleto ignorado")
+    if not order_nsu or not transaction_nsu or not email:
+        print("⚠️ Evento incompleto")
         return jsonify({"msg": "Evento incompleto"}), 200
 
     processados = carregar_processados()
 
-    # Evita duplicidade
-    if pagamento_id in processados:
-        print("🔁 Pagamento já processado:", pagamento_id)
-        return jsonify({"msg": "Pagamento já processado"}), 200
+    if transaction_nsu in processados:
+        print("🔁 Transação já processada:", transaction_nsu)
+        return jsonify({"msg": "Já processado"}), 200
 
     if order_nsu not in PLANOS:
         print("❌ Plano não reconhecido:", order_nsu)
-        return jsonify({"msg": "Plano não reconhecido"}), 200
+        return jsonify({"msg": "Plano inválido"}), 200
 
     plano = PLANOS[order_nsu]
 
-    if not os.path.exists(plano["pasta"]):
-        print("❌ Pasta do plano não encontrada")
-        return jsonify({"error": "Erro interno"}), 500
-
-    # -------- GERA ARQUIVO --------
+    # -------- GERAR ARQUIVO --------
     try:
         arquivo, senha = compactar_plano(plano["pasta"], PASTA_SAIDA)
     except Exception as e:
-        print("❌ ERRO AO COMPACTAR:", e)
-        return jsonify({"error": "Erro ao gerar arquivo"}), 500
+        print("❌ Erro ao compactar:", e)
+        return jsonify({"error": "Erro interno"}), 500
 
-    # -------- ENVIA EMAIL --------
+    # -------- ENVIAR EMAIL --------
     try:
-        print("📧 Enviando email para:", email)
         enviar_email(
             destinatario=email,
             nome_plano=plano["nome"],
@@ -100,25 +90,23 @@ def webhook():
             senha=senha
         )
     except Exception as e:
-        print("❌ ERRO AO ENVIAR EMAIL:", e)
-        return jsonify({"error": "Falha ao enviar email"}), 500
+        print("❌ Erro ao enviar email:", e)
+        return jsonify({"error": "Erro ao enviar email"}), 500
 
-    # -------- MARCA COMO PROCESSADO --------
-    processados.append(pagamento_id)
+    # -------- MARCAR COMO PROCESSADO --------
+    processados.append(transaction_nsu)
     salvar_processados(processados)
 
-    # -------- LIMPA ARQUIVO --------
+    # -------- LIMPAR ARQUIVO --------
     try:
         os.remove(arquivo)
     except Exception:
         pass
 
-    print("✅ PROCESSO FINALIZADO COM SUCESSO")
+    print("✅ PROCESSO FINALIZADO")
 
     return jsonify({"msg": "Plano enviado com sucesso"}), 200
 
-
-# ---------------- START ----------------
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
