@@ -11,15 +11,14 @@ def init_db():
     cur = conn.cursor()
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS orders (
-        id SERIAL PRIMARY KEY,
-        plano TEXT NOT NULL,
-        email TEXT NOT NULL,
-        telefone TEXT NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    )
-""")
-
+        CREATE TABLE IF NOT EXISTS orders (
+            id SERIAL PRIMARY KEY,
+            plano TEXT NOT NULL,
+            email TEXT NOT NULL,
+            telefone TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS processed (
@@ -35,13 +34,13 @@ def init_db():
     print("🗄️ POSTGRES CONECTADO E TABELAS OK", flush=True)
 
 
-def salvar_order_email(plano, email):
+def salvar_order(plano, email, telefone):
     conn = get_conn()
     cur = conn.cursor()
 
     cur.execute(
-        "INSERT INTO orders (plano, email) VALUES (%s, %s)",
-        (plano, email)
+        "INSERT INTO orders (plano, email, telefone) VALUES (%s, %s, %s)",
+        (plano, email, telefone)
     )
 
     conn.commit()
@@ -61,11 +60,28 @@ def buscar_email_pendente(plano):
     """, (plano,))
 
     row = cur.fetchone()
-
     cur.close()
     conn.close()
 
     return row[0] if row else None
+
+
+def listar_orders(limit=100):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT plano, email, telefone, created_at
+        FROM orders
+        ORDER BY created_at DESC
+        LIMIT %s
+    """, (limit,))
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return rows
 
 
 def transacao_ja_processada(transaction_nsu):
@@ -78,7 +94,6 @@ def transacao_ja_processada(transaction_nsu):
     )
 
     exists = cur.fetchone() is not None
-
     cur.close()
     conn.close()
 
@@ -97,4 +112,3 @@ def marcar_processada(transaction_nsu):
     conn.commit()
     cur.close()
     conn.close()
-
