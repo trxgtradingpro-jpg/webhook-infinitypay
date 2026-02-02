@@ -95,7 +95,7 @@ PLANOS = {
 # CHECKOUT DINÂMICO
 # ======================================================
 
-def criar_checkout_dinamico(plano_id, order_id):
+def criar_checkout_dinamico(plano_id, order_id, email, telefone):
     plano = PLANOS[plano_id]
 
     payload = {
@@ -103,6 +103,13 @@ def criar_checkout_dinamico(plano_id, order_id):
         "webhook_url": WEBHOOK_URL,
         "redirect_url": plano["redirect_url"],
         "order_nsu": order_id,
+
+        # 👇 DADOS DO CLIENTE (AUTOFILL INFINITEPAY)
+        "customer": {
+            "email": email,
+            "phone": telefone
+        },
+
         "items": [
             {
                 "description": plano["nome"],
@@ -115,6 +122,7 @@ def criar_checkout_dinamico(plano_id, order_id):
     r = requests.post(INFINITEPAY_URL, json=payload, timeout=30)
     r.raise_for_status()
     return r.json()["url"]
+
 
 # ======================================================
 # EMAIL COM RETRY AUTOMÁTICO
@@ -191,7 +199,13 @@ def comprar():
     order_id = str(uuid.uuid4())
     salvar_order(order_id, plano_id, email)
 
-    checkout_url = criar_checkout_dinamico(plano_id, order_id)
+    checkout_url = criar_checkout_dinamico(
+    plano_id=plano_id,
+    order_id=order_id,
+    email=email,
+    telefone=telefone
+)
+
     print(f"🧾 PEDIDO {order_id} criado para {email}", flush=True)
 
     return redirect(checkout_url)
@@ -306,5 +320,6 @@ def admin_pedido(order_id):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
