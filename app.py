@@ -41,22 +41,22 @@ WEBHOOK_URL = "https://webhook-infinitypay.onrender.com/webhook/infinitypay"
 # ======================================================
 
 PLANOS = {
-    "trx-bronze-0001": {
+    "trx-bronze": {
         "nome": "TRX BRONZE",
         "pasta": "Licencas/TRX BRONZE",
         "preco": 19700
     },
-    "trx-prata-0001": {
+    "trx-prata": {
         "nome": "TRX PRATA",
         "pasta": "Licencas/TRX PRATA",
         "preco": 25000
     },
-    "trx-gold-0001": {
+    "trx-gold": {
         "nome": "TRX GOLD",
         "pasta": "Licencas/TRX GOLD",
         "preco": 49900
     },
-    "trx-black-0001": {
+    "trx-black": {
         "nome": "TRX BLACK",
         "pasta": "Licencas/TRX BLACK",
         "preco": 70000
@@ -188,3 +188,4 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
