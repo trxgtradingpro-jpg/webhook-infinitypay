@@ -179,7 +179,20 @@ def listar_pedidos():
     cur.close()
     conn.close()
 
-    return rows
+    pedidos = []
+    for r in rows:
+        pedidos.append({
+            "order_id": r[0],
+            "nome": r[1],
+            "email": r[2],
+            "telefone": r[3],
+            "plano": r[4],
+            "status": r[5],
+            "created_at": r[6]
+        })
+
+    return pedidos
+
 
 
 def buscar_pedido_detalhado(order_id):
