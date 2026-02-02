@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Pedido {{ pedido.order_id }}</title>
+</head>
+<body>
+
+  <h2>Pedido</h2>
+
+  <p><b>Order ID:</b> {{ pedido.order_id }}</p>
+  <p><b>Email:</b> {{ pedido.email }}</p>
+  <p><b>Plano:</b> {{ pedido.plano }}</p>
+  <p><b>Status:</b> {{ pedido.status }}</p>
+  <p><b>Tentativas de Email:</b> {{ pedido.email_tentativas }}</p>
+  <p><b>Último erro:</b> {{ pedido.ultimo_erro }}</p>
+  <p><b>Data:</b> {{ pedido.created_at }}</p>
+
+  <br>
+  <a href="/admin/dashboard">← Voltar ao dashboard</a>
+
+</body>
+</html>
