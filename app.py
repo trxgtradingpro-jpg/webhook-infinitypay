@@ -254,13 +254,22 @@ def admin_login():
     return render_template("admin_login.html")
 
 
+from database import obter_estatisticas
+
 @app.route("/admin/dashboard")
 def admin_dashboard():
     if not session.get("admin"):
         return redirect("/admin/login")
 
     pedidos = listar_pedidos()
-    return render_template("admin_dashboard.html", pedidos=pedidos)
+    stats = obter_estatisticas()
+
+    return render_template(
+        "admin_dashboard.html",
+        pedidos=pedidos,
+        stats=stats
+    )
+
 
 
 @app.route("/admin/pedido/<order_id>")
@@ -281,3 +290,4 @@ def admin_pedido(order_id):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
