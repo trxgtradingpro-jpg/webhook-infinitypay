@@ -18,7 +18,6 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    # TABELA DE PEDIDOS
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             order_id TEXT PRIMARY KEY,
@@ -33,7 +32,6 @@ def init_db():
         )
     """)
 
-    # TRANSAÇÕES PROCESSADAS (WEBHOOK)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS processed_transactions (
             transaction_nsu TEXT PRIMARY KEY,
@@ -41,11 +39,18 @@ def init_db():
         )
     """)
 
+    # 🔥 MIGRATIONS SEGURAS
+    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS nome TEXT")
+    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS telefone TEXT")
+    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS email_tentativas INTEGER DEFAULT 0")
+    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS erro_email TEXT")
+
     conn.commit()
     cur.close()
     conn.close()
 
-    print("🗄️ POSTGRES OK (estrutura completa)", flush=True)
+    print("🗄️ POSTGRES OK (com migrations)", flush=True)
+
 
 # ======================================================
 # PEDIDOS
