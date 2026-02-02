@@ -139,18 +139,21 @@
     <form method="POST" action="/comprar">
 
       <input
-        type="email"
-        name="email"
-        placeholder="Seu melhor e-mail"
-        required
-      />
+  type="email"
+  name="email"
+  placeholder="Seu melhor e-mail"
+  value="{{ email }}"
+  required
+/>
 
-      <input
-        type="tel"
-        name="telefone"
-        placeholder="WhatsApp (ex: 11 99999-9999)"
-        required
-      />
+<input
+  type="tel"
+  name="telefone"
+  placeholder="WhatsApp (ex: 11 99999-9999)"
+  value="{{ telefone }}"
+  required
+/>
+
 
       <!-- PLANO VEM DA URL -->
       <input type="hidden" name="plano" value="{{ plano }}">
