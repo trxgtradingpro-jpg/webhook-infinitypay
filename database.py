@@ -1,26 +1,24 @@
 import psycopg2
 import os
 
-print("📦 DATABASE.PY CARREGADO")
-
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+# ======================================================
+# CONEXÃO
+# ======================================================
 
 def get_conn():
     return psycopg2.connect(DATABASE_URL, sslmode="require")
 
+# ======================================================
+# INIT / MIGRATIONS
+# ======================================================
 
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    RESET_DB = os.environ.get("RESET_DB") == "1"
-
-    if RESET_DB:
-        print("⚠️ RESET_DB ATIVO — APAGANDO TABELAS", flush=True)
-        cur.execute("DROP TABLE IF EXISTS orders CASCADE")
-        cur.execute("DROP TABLE IF EXISTS processed_transactions CASCADE")
-
+    # TABELA DE PEDIDOS
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             order_id TEXT PRIMARY KEY,
@@ -28,13 +26,14 @@ def init_db():
             nome TEXT,
             email TEXT NOT NULL,
             telefone TEXT,
-            status TEXT DEFAULT 'PENDENTE',
-            email_tentativas INT DEFAULT 0,
-            ultimo_erro TEXT,
+            status TEXT NOT NULL DEFAULT 'PENDENTE',
+            email_tentativas INTEGER DEFAULT 0,
+            erro_email TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         )
     """)
 
+    # TRANSAÇÕES PROCESSADAS (WEBHOOK)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS processed_transactions (
             transaction_nsu TEXT PRIMARY KEY,
@@ -46,10 +45,11 @@ def init_db():
     cur.close()
     conn.close()
 
-    print("🗄️ POSTGRES OK", flush=True)
+    print("🗄️ POSTGRES OK (estrutura completa)", flush=True)
 
-
-
+# ======================================================
+# PEDIDOS
+# ======================================================
 
 def salvar_order(order_id, plano, nome, email, telefone):
     conn = get_conn()
@@ -65,19 +65,18 @@ def salvar_order(order_id, plano, nome, email, telefone):
     conn.close()
 
 
-
 def buscar_order_por_id(order_id):
     conn = get_conn()
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT order_id, plano, email, status, email_tentativas
+        SELECT order_id, plano, nome, email, telefone,
+               status, email_tentativas, erro_email, created_at
         FROM orders
         WHERE order_id = %s
     """, (order_id,))
 
     row = cur.fetchone()
-
     cur.close()
     conn.close()
 
@@ -87,9 +86,13 @@ def buscar_order_por_id(order_id):
     return {
         "order_id": row[0],
         "plano": row[1],
-        "email": row[2],
-        "status": row[3],
-        "email_tentativas": row[4]
+        "nome": row[2],
+        "email": row[3],
+        "telefone": row[4],
+        "status": row[5],
+        "email_tentativas": row[6],
+        "erro_email": row[7],
+        "created_at": row[8]
     }
 
 
@@ -99,7 +102,7 @@ def marcar_order_processada(order_id):
 
     cur.execute("""
         UPDATE orders
-        SET status = 'PROCESSADO'
+        SET status = 'PAGO'
         WHERE order_id = %s
     """, (order_id,))
 
@@ -115,7 +118,7 @@ def registrar_falha_email(order_id, tentativas, erro):
     cur.execute("""
         UPDATE orders
         SET email_tentativas = %s,
-            ultimo_erro = %s
+            erro_email = %s
         WHERE order_id = %s
     """, (tentativas, erro, order_id))
 
@@ -123,22 +126,24 @@ def registrar_falha_email(order_id, tentativas, erro):
     cur.close()
     conn.close()
 
+# ======================================================
+# TRANSAÇÕES / WEBHOOK
+# ======================================================
 
 def transacao_ja_processada(transaction_nsu):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute(
-        "SELECT 1 FROM processed WHERE transaction_nsu = %s",
-        (transaction_nsu,)
-    )
+    cur.execute("""
+        SELECT 1 FROM processed_transactions
+        WHERE transaction_nsu = %s
+    """, (transaction_nsu,))
 
-    exists = cur.fetchone() is not None
-
+    existe = cur.fetchone() is not None
     cur.close()
     conn.close()
 
-    return exists
+    return existe
 
 
 def marcar_transacao_processada(transaction_nsu):
@@ -146,7 +151,7 @@ def marcar_transacao_processada(transaction_nsu):
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO processed (transaction_nsu)
+        INSERT INTO processed_transactions (transaction_nsu)
         VALUES (%s)
         ON CONFLICT DO NOTHING
     """, (transaction_nsu,))
@@ -154,12 +159,18 @@ def marcar_transacao_processada(transaction_nsu):
     conn.commit()
     cur.close()
     conn.close()
+
+# ======================================================
+# DASHBOARD
+# ======================================================
+
 def listar_pedidos():
     conn = get_conn()
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT order_id, email, plano, status, email_tentativas, created_at
+        SELECT order_id, nome, email, telefone,
+               plano, status, created_at
         FROM orders
         ORDER BY created_at DESC
     """)
@@ -168,46 +179,11 @@ def listar_pedidos():
     cur.close()
     conn.close()
 
-    pedidos = []
-    for r in rows:
-        pedidos.append({
-            "order_id": r[0],
-            "email": r[1],
-            "plano": r[2],
-            "status": r[3],
-            "email_tentativas": r[4],
-            "created_at": r[5]
-        })
-
-    return pedidos
+    return rows
 
 
 def buscar_pedido_detalhado(order_id):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT *
-        FROM orders
-        WHERE order_id = %s
-    """, (order_id,))
-
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    if not row:
-        return None
-
-    return {
-        "order_id": row[0],
-        "plano": row[1],
-        "email": row[2],
-        "status": row[3],
-        "email_tentativas": row[4],
-        "ultimo_erro": row[5],
-        "created_at": row[6]
-    }
+    return buscar_order_por_id(order_id)
 
 
 def obter_estatisticas():
@@ -215,22 +191,19 @@ def obter_estatisticas():
     cur = conn.cursor()
 
     cur.execute("SELECT COUNT(*) FROM orders")
-    total_pedidos = cur.fetchone()[0]
+    total = cur.fetchone()[0]
 
-    cur.execute("SELECT COUNT(*) FROM orders WHERE status = 'PROCESSADO'")
-    processados = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM orders WHERE status = 'PAGO'")
+    pagos = cur.fetchone()[0]
 
     cur.execute("SELECT COUNT(*) FROM orders WHERE status = 'PENDENTE'")
     pendentes = cur.fetchone()[0]
 
-    conn.commit()
     cur.close()
     conn.close()
 
     return {
-        "total": total_pedidos,
-        "processados": processados,
+        "total": total,
+        "pagos": pagos,
         "pendentes": pendentes
     }
-
-
