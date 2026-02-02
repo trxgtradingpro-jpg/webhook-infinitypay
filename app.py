@@ -162,16 +162,31 @@ def home():
 def checkout(plano):
     if plano not in PLANOS:
         return "Plano inválido", 404
-    return render_template("checkout.html", plano=plano)
+
+    email = session.get("email", "")
+    telefone = session.get("telefone", "")
+
+    return render_template(
+        "checkout.html",
+        plano=plano,
+        email=email,
+        telefone=telefone
+    )
+
 
 
 @app.route("/comprar", methods=["POST"])
 def comprar():
     email = request.form.get("email")
+    telefone = request.form.get("telefone")
     plano_id = request.form.get("plano")
 
-    if not email or plano_id not in PLANOS:
+    if not email or not telefone or plano_id not in PLANOS:
         return "Dados inválidos", 400
+
+    # salva na sessão (UX)
+    session["email"] = email
+    session["telefone"] = telefone
 
     order_id = str(uuid.uuid4())
     salvar_order(order_id, plano_id, email)
@@ -180,6 +195,7 @@ def comprar():
     print(f"🧾 PEDIDO {order_id} criado para {email}", flush=True)
 
     return redirect(checkout_url)
+
 
 # ======================================================
 # WEBHOOK INFINITEPAY
@@ -290,4 +306,5 @@ def admin_pedido(order_id):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
