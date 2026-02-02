@@ -14,38 +14,45 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    # TABELA BASE
+    # cria tabela base
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             order_id TEXT PRIMARY KEY,
             plano TEXT NOT NULL,
             email TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'PENDENTE',
-            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            status TEXT DEFAULT 'PENDENTE',
+            email_tentativas INT DEFAULT 0,
+            ultimo_erro TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
         )
     """)
 
-    # MIGRATIONS SEGURAS (corrige erro atual)
-    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS email_tentativas INT DEFAULT 0;")
-    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS ultimo_erro TEXT;")
+    # migrations seguras
+    colunas = {
+        "nome": "TEXT",
+        "telefone": "TEXT"
+    }
 
-    # TABELA DE IDEMPOTÊNCIA
+    for coluna, tipo in colunas.items():
+        cur.execute(f"""
+            ALTER TABLE orders
+            ADD COLUMN IF NOT EXISTS {coluna} {tipo}
+        """)
+
+    # tabela de transações processadas
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS orders (
-        order_id TEXT PRIMARY KEY,
-        plano TEXT NOT NULL,
-        nome TEXT,
-        email TEXT NOT NULL,
-        telefone TEXT,
-        status TEXT DEFAULT 'PENDENTE',
-        email_tentativas INT DEFAULT 0,
-        ultimo_erro TEXT,
-        created_at TIMESTAMP DEFAULT NOW()
-    )
-""")
+        CREATE TABLE IF NOT EXISTS processed_transactions (
+            transaction_nsu TEXT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
 
+    conn.commit()
+    cur.close()
+    conn.close()
 
     print("🗄️ POSTGRES OK (com migrations)", flush=True)
+
 
 
 def salvar_order(order_id, plano, nome, email, telefone):
