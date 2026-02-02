@@ -121,7 +121,7 @@ def enviar_email_com_retry(order, plano_info, arquivo, senha):
 
         except Exception as e:
             tentativas += 1
-            print(f"❌ Falha no envio do email (tentativa {tentativas}): {e}", flush=True)
+            print(f"❌ Falha email tentativa {tentativas}: {e}", flush=True)
 
             registrar_falha_email(
                 order_id=order["order_id"],
