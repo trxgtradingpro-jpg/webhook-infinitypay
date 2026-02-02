@@ -32,9 +32,8 @@ print("🚀 APP INICIADO", flush=True)
 app = Flask(__name__)
 
 # ======================================================
-# CONFIG ADMIN (SOMENTE VARIÁVEIS DE AMBIENTE)
+# CONFIG ADMIN (SEGURANÇA VIA ENV)
 # ======================================================
-# ⚠️ Se essas variáveis não existirem, o app NÃO SOBE (correto em produção)
 
 app.secret_key = os.environ["ADMIN_SECRET"]
 ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
@@ -240,7 +239,7 @@ def webhook():
     return jsonify({"msg": "OK"}), 200
 
 # ======================================================
-# DASHBOARD ADMIN (PROTEGIDO)
+# DASHBOARD ADMIN (TEMPLATES)
 # ======================================================
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -252,13 +251,7 @@ def admin_login():
             return redirect("/admin/dashboard")
         return "Senha inválida", 403
 
-    return """
-    <h2>Login Admin</h2>
-    <form method="post">
-        <input type="password" name="senha" placeholder="Senha">
-        <button>Entrar</button>
-    </form>
-    """
+    return render_template("admin_login.html")
 
 
 @app.route("/admin/dashboard")
@@ -267,24 +260,7 @@ def admin_dashboard():
         return redirect("/admin/login")
 
     pedidos = listar_pedidos()
-
-    html = "<h2>Pedidos</h2><table border=1 cellpadding=6>"
-    html += "<tr><th>Order</th><th>Email</th><th>Plano</th><th>Status</th><th>Tentativas</th><th>Data</th></tr>"
-
-    for p in pedidos:
-        html += f"""
-        <tr>
-            <td><a href="/admin/pedido/{p['order_id']}">{p['order_id']}</a></td>
-            <td>{p['email']}</td>
-            <td>{p['plano']}</td>
-            <td>{p['status']}</td>
-            <td>{p['email_tentativas']}</td>
-            <td>{p['created_at']}</td>
-        </tr>
-        """
-
-    html += "</table>"
-    return html
+    return render_template("admin_dashboard.html", pedidos=pedidos)
 
 
 @app.route("/admin/pedido/<order_id>")
@@ -296,16 +272,7 @@ def admin_pedido(order_id):
     if not pedido:
         return "Pedido não encontrado", 404
 
-    return f"""
-    <h2>Pedido {pedido['order_id']}</h2>
-    <p><b>Email:</b> {pedido['email']}</p>
-    <p><b>Plano:</b> {pedido['plano']}</p>
-    <p><b>Status:</b> {pedido['status']}</p>
-    <p><b>Tentativas Email:</b> {pedido['email_tentativas']}</p>
-    <p><b>Último erro:</b> {pedido['ultimo_erro']}</p>
-    <p><b>Data:</b> {pedido['created_at']}</p>
-    <a href="/admin/dashboard">← Voltar</a>
-    """
+    return render_template("admin_pedido.html", pedido=pedido)
 
 # ======================================================
 # START
