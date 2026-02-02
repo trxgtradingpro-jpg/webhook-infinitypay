@@ -1,4 +1,7 @@
-from flask import Flask, request, jsonify, render_template, redirect
+from flask import (
+    Flask, request, jsonify, render_template,
+    redirect, session
+)
 import os
 import json
 import uuid
@@ -15,12 +18,21 @@ from database import (
     marcar_order_processada,
     registrar_falha_email,
     transacao_ja_processada,
-    marcar_transacao_processada
+    marcar_transacao_processada,
+    listar_pedidos,
+    buscar_pedido_detalhado
 )
 
 print("🚀 APP INICIADO", flush=True)
 
 app = Flask(__name__)
+
+# ======================================================
+# CONFIG ADMIN
+# ======================================================
+
+app.secret_key = os.environ.get("ADMIN_SECRET", "supersecret")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "123456")
 
 # ======================================================
 # INIT
@@ -134,14 +146,18 @@ def enviar_email_com_retry(order, plano_info, arquivo, senha):
     return False
 
 # ======================================================
-# ROTAS
+# ROTAS PÚBLICAS
 # ======================================================
+
+@app.route("/")
+def home():
+    return redirect("/checkout/trx-bronze")
+
 
 @app.route("/checkout/<plano>")
 def checkout(plano):
     if plano not in PLANOS:
         return "Plano inválido", 404
-
     return render_template("checkout.html", plano=plano)
 
 
@@ -154,12 +170,11 @@ def comprar():
         return "Dados inválidos", 400
 
     order_id = str(uuid.uuid4())
-
     salvar_order(order_id, plano_id, email)
 
     checkout_url = criar_checkout_dinamico(plano_id, order_id)
-
     print(f"🧾 PEDIDO {order_id} criado para {email}", flush=True)
+
     return redirect(checkout_url)
 
 # ======================================================
@@ -199,12 +214,7 @@ def webhook():
     try:
         arquivo, senha = compactar_plano(plano_info["pasta"], PASTA_SAIDA)
 
-        sucesso = enviar_email_com_retry(
-            order=order,
-            plano_info=plano_info,
-            arquivo=arquivo,
-            senha=senha
-        )
+        sucesso = enviar_email_com_retry(order, plano_info, arquivo, senha)
 
         if sucesso:
             marcar_order_processada(order_id)
@@ -218,6 +228,74 @@ def webhook():
             os.remove(arquivo)
 
     return jsonify({"msg": "OK"}), 200
+
+# ======================================================
+# DASHBOARD ADMIN
+# ======================================================
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        senha = request.form.get("senha")
+        if senha == ADMIN_PASSWORD:
+            session["admin"] = True
+            return redirect("/admin/dashboard")
+        return "Senha inválida", 403
+
+    return """
+    <h2>Login Admin</h2>
+    <form method="post">
+        <input type="password" name="senha" placeholder="Senha">
+        <button>Entrar</button>
+    </form>
+    """
+
+
+@app.route("/admin/dashboard")
+def admin_dashboard():
+    if not session.get("admin"):
+        return redirect("/admin/login")
+
+    pedidos = listar_pedidos()
+
+    html = "<h2>Pedidos</h2><table border=1 cellpadding=6>"
+    html += "<tr><th>Order</th><th>Email</th><th>Plano</th><th>Status</th><th>Tentativas</th><th>Data</th></tr>"
+
+    for p in pedidos:
+        html += f"""
+        <tr>
+            <td><a href="/admin/pedido/{p['order_id']}">{p['order_id']}</a></td>
+            <td>{p['email']}</td>
+            <td>{p['plano']}</td>
+            <td>{p['status']}</td>
+            <td>{p['email_tentativas']}</td>
+            <td>{p['created_at']}</td>
+        </tr>
+        """
+
+    html += "</table>"
+    return html
+
+
+@app.route("/admin/pedido/<order_id>")
+def admin_pedido(order_id):
+    if not session.get("admin"):
+        return redirect("/admin/login")
+
+    pedido = buscar_pedido_detalhado(order_id)
+    if not pedido:
+        return "Pedido não encontrado", 404
+
+    return f"""
+    <h2>Pedido {pedido['order_id']}</h2>
+    <p><b>Email:</b> {pedido['email']}</p>
+    <p><b>Plano:</b> {pedido['plano']}</p>
+    <p><b>Status:</b> {pedido['status']}</p>
+    <p><b>Tentativas Email:</b> {pedido['email_tentativas']}</p>
+    <p><b>Último erro:</b> {pedido['ultimo_erro']}</p>
+    <p><b>Data:</b> {pedido['created_at']}</p>
+    <a href="/admin/dashboard">← Voltar</a>
+    """
 
 # ======================================================
 # START
