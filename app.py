@@ -209,43 +209,42 @@ def comprar():
     if not nome or not email or not telefone or plano_id not in PLANOS:
         return "Dados inválidos", 400
 
-    formatar_telefone_infinitepay(telefone)
-
-    session["nome"] = nome
-    session["email"] = email
-    session["telefone"] = telefone
-
     order_id = str(uuid.uuid4())
+
     salvar_order(
-    order_id=order_id,
-    plano=plano_id,
-    nome=nome,
-    email=email,
-    telefone=telefone_raw
-)
+        order_id=order_id,
+        plano=plano_id,
+        nome=nome,
+        email=email,
+        telefone=telefone
+    )
 
+    plano_info = PLANOS[plano_id]
 
-    plano = PLANOS[plano_id]
+    # 🔹 PLANO GRÁTIS → pula checkout
+    if plano_info["preco"] <= 0:
+        arquivo, senha = compactar_plano(plano_info["pasta"], PASTA_SAIDA)
 
-    # 🎁 PLANO GRÁTIS
-    if plano.get("gratis") is True or plano["preco"] <= 0:
-        arquivo = None
-        try:
-            arquivo, senha = compactar_plano(plano["pasta"], PASTA_SAIDA)
-            enviar_email(email, plano["nome"], arquivo, senha)
-            marcar_order_processada(order_id)
-        finally:
-            if arquivo and os.path.exists(arquivo):
-                os.remove(arquivo)
+        enviar_email(
+            destinatario=email,
+            nome_plano=plano_info["nome"],
+            arquivo=arquivo,
+            senha=senha
+        )
 
-        return redirect(plano["redirect_url"])
+        marcar_order_processada(order_id)
+        return redirect(plano_info["redirect_url"])
 
-    # 💳 PLANO TESTE / PAGO
     checkout_url = criar_checkout_dinamico(
-        plano_id, order_id, nome, email, telefone
+        plano_id=plano_id,
+        order_id=order_id,
+        nome=nome,
+        email=email,
+        telefone=telefone
     )
 
     return redirect(checkout_url)
+
 
 # ======================================================
 # WEBHOOK
@@ -331,4 +330,5 @@ def admin_pedido(order_id):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
