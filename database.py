@@ -44,18 +44,19 @@ def init_db():
     print("🗄️ POSTGRES OK (com migrations)", flush=True)
 
 
-def salvar_order(order_id, plano, email):
+def salvar_order(order_id, plano, nome, email, telefone):
     conn = get_conn()
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO orders (order_id, plano, email)
-        VALUES (%s, %s, %s)
-    """, (order_id, plano, email))
+        INSERT INTO orders (order_id, plano, nome, email, telefone)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (order_id, plano, nome, email, telefone))
 
     conn.commit()
     cur.close()
     conn.close()
+
 
 
 def buscar_order_por_id(order_id):
