@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard - Pedidos</title>
+</head>
+<body>
+
+  <h2>Pedidos</h2>
+
+  <table border="1" cellpadding="6">
+    <tr>
+      <th>Order ID</th>
+      <th>Email</th>
+      <th>Plano</th>
+      <th>Status</th>
+      <th>Tentativas Email</th>
+      <th>Data</th>
+    </tr>
+
+    {% for p in pedidos %}
+    <tr>
+      <td>
+        <a href="/admin/pedido/{{ p.order_id }}">
+          {{ p.order_id }}
+        </a>
+      </td>
+      <td>{{ p.email }}</td>
+      <td>{{ p.plano }}</td>
+      <td>{{ p.status }}</td>
+      <td>{{ p.email_tentativas }}</td>
+      <td>{{ p.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+</body>
+</html>
