@@ -14,12 +14,20 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    # cria tabela base
+    RESET_DB = os.environ.get("RESET_DB") == "1"
+
+    if RESET_DB:
+        print("⚠️ RESET_DB ATIVO — APAGANDO TABELAS", flush=True)
+        cur.execute("DROP TABLE IF EXISTS orders CASCADE")
+        cur.execute("DROP TABLE IF EXISTS processed_transactions CASCADE")
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             order_id TEXT PRIMARY KEY,
             plano TEXT NOT NULL,
+            nome TEXT,
             email TEXT NOT NULL,
+            telefone TEXT,
             status TEXT DEFAULT 'PENDENTE',
             email_tentativas INT DEFAULT 0,
             ultimo_erro TEXT,
@@ -27,19 +35,6 @@ def init_db():
         )
     """)
 
-    # migrations seguras
-    colunas = {
-        "nome": "TEXT",
-        "telefone": "TEXT"
-    }
-
-    for coluna, tipo in colunas.items():
-        cur.execute(f"""
-            ALTER TABLE orders
-            ADD COLUMN IF NOT EXISTS {coluna} {tipo}
-        """)
-
-    # tabela de transações processadas
     cur.execute("""
         CREATE TABLE IF NOT EXISTS processed_transactions (
             transaction_nsu TEXT PRIMARY KEY,
@@ -51,7 +46,8 @@ def init_db():
     cur.close()
     conn.close()
 
-    print("🗄️ POSTGRES OK (com migrations)", flush=True)
+    print("🗄️ POSTGRES OK", flush=True)
+
 
 
 
