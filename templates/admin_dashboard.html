@@ -18,6 +18,34 @@
       color: #1f2937;
     }
 
+    /* STATS */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .stat {
+      background: #fff;
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+    }
+
+    .stat h3 {
+      margin: 0;
+      font-size: 14px;
+      color: #6b7280;
+    }
+
+    .stat span {
+      font-size: 28px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    /* TABLE */
     .card {
       background: #fff;
       border-radius: 14px;
@@ -34,25 +62,17 @@
 
     th, td {
       padding: 12px 14px;
-      text-align: left;
       border-bottom: 1px solid #e5e7eb;
     }
 
     th {
-      color: #6b7280;
-      font-weight: 600;
-      text-transform: uppercase;
       font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
     }
 
     tr:hover {
       background: #f9fafb;
-    }
-
-    a {
-      color: #2563eb;
-      text-decoration: none;
-      font-weight: 500;
     }
 
     .status {
@@ -60,7 +80,6 @@
       border-radius: 999px;
       font-size: 12px;
       font-weight: 600;
-      display: inline-block;
     }
 
     .PENDENTE {
@@ -72,12 +91,36 @@
       background: #dcfce7;
       color: #166534;
     }
+
+    .actions a {
+      margin-right: 10px;
+      text-decoration: none;
+      font-weight: 500;
+      color: #2563eb;
+    }
   </style>
 </head>
 <body>
 
-  <h2>📊 Pedidos</h2>
+  <h2>📊 Dashboard</h2>
 
+  <!-- STATS -->
+  <div class="stats">
+    <div class="stat">
+      <h3>Total de pedidos</h3>
+      <span>{{ stats.total }}</span>
+    </div>
+    <div class="stat">
+      <h3>Processados</h3>
+      <span>{{ stats.processados }}</span>
+    </div>
+    <div class="stat">
+      <h3>Pendentes</h3>
+      <span>{{ stats.pendentes }}</span>
+    </div>
+  </div>
+
+  <!-- TABLE -->
   <div class="card">
     <table>
       <tr>
@@ -85,17 +128,12 @@
         <th>Email</th>
         <th>Plano</th>
         <th>Status</th>
-        <th>Tentativas</th>
-        <th>Data</th>
+        <th>Ações</th>
       </tr>
 
       {% for p in pedidos %}
       <tr>
-        <td>
-          <a href="/admin/pedido/{{ p.order_id }}">
-            {{ p.order_id[:8] }}…
-          </a>
-        </td>
+        <td>{{ p.order_id[:8] }}…</td>
         <td>{{ p.email }}</td>
         <td>{{ p.plano }}</td>
         <td>
@@ -103,8 +141,9 @@
             {{ p.status }}
           </span>
         </td>
-        <td>{{ p.email_tentativas }}</td>
-        <td>{{ p.created_at }}</td>
+        <td class="actions">
+          <a href="/admin/pedido/{{ p.order_id }}">Ver</a>
+        </td>
       </tr>
       {% endfor %}
     </table>
