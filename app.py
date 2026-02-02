@@ -86,11 +86,17 @@ PLANOS = {
         "preco": 70000,
         "redirect_url": "https://sites.google.com/view/plano-ilimitado/in%C3%ADcio"
     },
+    "trx-gratis": {
+        "nome": "TRX GRATIS",
+        "pasta": "Licencas/TRX GRATIS",
+        "preco": 100,
+        "redirect_url": "https://sites.google.com/view/planogratuito/in%C3%ADcio"
+    },
     "trx-teste": {
         "nome": "TRX TESTE",
         "pasta": "Licencas/TRX TESTE",
         "preco": 100,
-        "redirect_url": "https://sites.google.com/view/plano-bronze/in%C3%ADcio"
+        "redirect_url": "https://sites.google.com/view/planogratuito/in%C3%ADcio"
     }
 }
 
@@ -329,3 +335,4 @@ def admin_pedido(order_id):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
