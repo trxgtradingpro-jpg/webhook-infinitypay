@@ -90,12 +90,23 @@ PLANOS = {
         "redirect_url": "https://sites.google.com/view/plano-bronze/in%C3%ADcio"
     }
 }
+import re
+
+def limpar_telefone(telefone):
+    # remove tudo que não for número
+    numeros = re.sub(r"\D", "", telefone)
+
+    # se vier com 55 no começo, remove
+    if numeros.startswith("55") and len(numeros) > 11:
+        numeros = numeros[2:]
+
+    return numeros
 
 # ======================================================
 # CHECKOUT DINÂMICO
 # ======================================================
 
-def criar_checkout_dinamico(plano_id, order_id, email, telefone):
+def criar_checkout_dinamico(plano_id, order_id, email, telefone, nome):
     plano = PLANOS[plano_id]
 
     payload = {
@@ -106,7 +117,9 @@ def criar_checkout_dinamico(plano_id, order_id, email, telefone):
 
         # 👇 DADOS DO CLIENTE (AUTOFILL INFINITEPAY)
         "customer": {
+            "name": nome,
             "email": email,
+            "country_code": "55",
             "phone": telefone
         },
 
@@ -122,6 +135,7 @@ def criar_checkout_dinamico(plano_id, order_id, email, telefone):
     r = requests.post(INFINITEPAY_URL, json=payload, timeout=30)
     r.raise_for_status()
     return r.json()["url"]
+
 
 
 # ======================================================
@@ -320,6 +334,7 @@ def admin_pedido(order_id):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
