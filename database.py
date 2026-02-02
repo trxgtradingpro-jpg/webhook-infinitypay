@@ -146,3 +146,58 @@ def marcar_transacao_processada(transaction_nsu):
     conn.commit()
     cur.close()
     conn.close()
+def listar_pedidos():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT order_id, email, plano, status, email_tentativas, created_at
+        FROM orders
+        ORDER BY created_at DESC
+    """)
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    pedidos = []
+    for r in rows:
+        pedidos.append({
+            "order_id": r[0],
+            "email": r[1],
+            "plano": r[2],
+            "status": r[3],
+            "email_tentativas": r[4],
+            "created_at": r[5]
+        })
+
+    return pedidos
+
+
+def buscar_pedido_detalhado(order_id):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT *
+        FROM orders
+        WHERE order_id = %s
+    """, (order_id,))
+
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "order_id": row[0],
+        "plano": row[1],
+        "email": row[2],
+        "status": row[3],
+        "email_tentativas": row[4],
+        "ultimo_erro": row[5],
+        "created_at": row[6]
+    }
+
