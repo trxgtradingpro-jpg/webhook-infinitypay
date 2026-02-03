@@ -136,12 +136,12 @@ footer{
     <p class="blue">R$ {{ "%.2f"|format(stats.total_faturado/100) }}</p>
   </div>
   <div class="stat">
-    <h3>Pagamentos PIX</h3>
-    <p>{{ stats.pagamentos_pix }}</p>
+    <h3>Pedidos Pagos</h3>
+    <p>{{ stats.pagos }}</p>
   </div>
   <div class="stat">
-    <h3>Pagamentos Cartão</h3>
-    <p>{{ stats.pagamentos_cartao }}</p>
+    <h3>Pedidos Pendentes</h3>
+    <p>{{ stats.pendentes }}</p>
   </div>
 </div>
 
