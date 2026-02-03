@@ -315,7 +315,11 @@ def admin_dashboard():
 
 def montar_dashboard_stats(pedidos):
     total_vendas = len(pedidos)
-    pagos = [pedido for pedido in pedidos if pedido["status"] == "PAGO"]
+    pagos = [
+        pedido
+        for pedido in pedidos
+        if (pedido.get("status") or "").strip().upper() == "PAGO"
+    ]
     pendentes = total_vendas - len(pagos)
     total_faturado = sum(
         PLANOS[pedido["plano"]]["preco"]
