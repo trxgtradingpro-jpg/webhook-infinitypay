@@ -71,19 +71,19 @@ PLANOS = {
     "trx-prata": {
         "nome": "TRX PRATA",
         "pasta": "Licencas/TRX PRATA",
-        "preco": 25000,
+        "preco": 24700,
         "redirect_url": "https://sites.google.com/view/plano-prata/in%C3%ADcio"
     },
     "trx-gold": {
         "nome": "TRX GOLD",
         "pasta": "Licencas/TRX GOLD",
-        "preco": 49900,
+        "preco": 49700,
         "redirect_url": "https://sites.google.com/view/plano-gold/in%C3%ADcio"
     },
     "trx-black": {
         "nome": "TRX BLACK",
         "pasta": "Licencas/TRX BLACK",
-        "preco": 70000,
+        "preco": 69700,
         "redirect_url": "https://sites.google.com/view/plano-ilimitado/in%C3%ADcio"
     },
     "trx-teste": {
@@ -330,6 +330,7 @@ def admin_pedido(order_id):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
