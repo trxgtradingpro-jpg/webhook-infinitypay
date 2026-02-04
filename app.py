@@ -101,7 +101,38 @@ PLANOS = {
         "preco": 0,
         "gratis": True,
         "redirect_url": "https://sites.google.com/view/planogratuito/in%C3%ADcio"
-    }
+    },
+# =====================ALESSIO =========================
+    "trx-bronze-gringo": {
+        "nome": "TRX BRONZE",
+        "pasta": "Licencas/TRX BRONZE",
+        "preco": 19700,
+        "redirect_url": "https://sites.google.com/view/plano-bronze/in%C3%ADcio"
+    },
+    "trx-prata-gringo": {
+        "nome": "TRX PRATA",
+        "pasta": "Licencas/TRX PRATA",
+        "preco": 24700,
+        "redirect_url": "https://sites.google.com/view/plano-prata/in%C3%ADcio"
+    },
+    "trx-gold-gringo": {
+        "nome": "TRX GOLD",
+        "pasta": "Licencas/TRX GOLD",
+        "preco": 49700,
+        "redirect_url": "https://sites.google.com/view/plano-gold/in%C3%ADcio"
+    },
+    "trx-black-gringo": {
+        "nome": "TRX BLACK",
+        "pasta": "Licencas/TRX BLACK",
+        "preco": 69700,
+        "redirect_url": "https://sites.google.com/view/plano-ilimitado/in%C3%ADcio"
+    },
+    "trx-teste-gringo": {
+        "nome": "TRX TESTE",
+        "pasta": "Licencas/TRX TESTE",
+        "preco": 110,
+        "redirect_url": "https://sites.google.com/view/planogratuito/in%C3%ADcio"
+    
 }
 
 # ======================================================
@@ -429,6 +460,7 @@ def admin_export_csv():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
