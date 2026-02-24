@@ -201,7 +201,7 @@
 <body>
   <section class="card">
     <h1>&Aacute;rea do Cliente</h1>
-    <p class="sub">Use seu e-mail de compra e senha para acessar seus dados e datas de expiracao dos planos.</p>
+    <p class="sub">Use seu e-mail ou telefone de compra e senha para acessar seus dados e datas de expiracao dos planos.</p>
 
     {% if erro %}
       <div class="msg err">{{ erro }}</div>
@@ -213,8 +213,8 @@
     <form method="POST" action="/login" novalidate>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-      <label for="email">E-mail</label>
-      <input id="email" name="email" type="email" required autocomplete="username" value="{{ email or '' }}">
+      <label for="loginId">E-mail ou telefone</label>
+      <input id="loginId" name="login_id" type="text" required autocomplete="username" value="{{ login_id or '' }}">
       <div id="emailStatus" class="email-status"></div>
 
       <label for="senha" id="senhaLabel">Senha</label>
@@ -236,22 +236,22 @@
 
       <label class="remember">
         <input type="checkbox" name="remember_me" value="1" {% if remember_checked %}checked{% endif %}>
-        Manter login automático neste dispositivo
+        Manter login automatico neste dispositivo
       </label>
 
       <button type="submit">Entrar</button>
       <a class="recover-link" href="/login/recuperar-senha">Recuperar senha</a>
     </form>
 
-    <p class="foot">Primeiro acesso sem senha cadastrada: no botão Entrar, vamos enviar código de 6 dígitos para seu e-mail.</p>
-    <a href="/" class="back">Voltar para a página inicial</a>
+    <p class="foot">Primeiro acesso sem senha cadastrada: no botao Entrar, vamos enviar codigo de 6 digitos para seu e-mail.</p>
+    <a href="/" class="back">Voltar para a pagina inicial</a>
   </section>
 
   {% include "_shared_footer.html" %}
 
   <script>
     (function(){
-      const emailInput = document.getElementById("email");
+      const loginInput = document.getElementById("loginId");
       const statusEl = document.getElementById("emailStatus");
       const submitBtn = document.querySelector('form[action="/login"] button[type="submit"]');
       const passInput = document.getElementById("senha");
@@ -285,7 +285,7 @@
           passInput.value = "";
           passInput.required = false;
           passInput.disabled = true;
-          passInput.placeholder = "Primeiro acesso detectado (senha ainda não criada)";
+          passInput.placeholder = "Primeiro acesso detectado (senha ainda nao criada)";
         } else {
           passLabel.textContent = "Senha";
           passInput.required = true;
@@ -296,26 +296,49 @@
         }
       }
 
-      async function validarEmailAgora(valorEmail){
-        const email = (valorEmail || "").trim().toLowerCase();
-        if (!email) {
+      function normalizarTelefoneLogin(valor){
+        const nums = (valor || "").replace(/\D/g, "");
+        if (nums.startsWith("55") && nums.length > 11) {
+          return nums.slice(2);
+        }
+        return nums;
+      }
+
+      function resolverIdentificador(valorBruto){
+        const valor = (valorBruto || "").trim();
+        const email = valor.toLowerCase();
+        if (emailRe.test(email)) {
+          return { valid: true, kind: "email", value: email };
+        }
+        const telefone = normalizarTelefoneLogin(valor);
+        if (telefone.length === 10 || telefone.length === 11) {
+          return { valid: true, kind: "phone", value: telefone };
+        }
+        return { valid: false, kind: "invalid", value: valor };
+      }
+
+      async function validarLoginAgora(valorLogin){
+        const raw = (valorLogin || "").trim();
+        if (!raw) {
           setStatus("", "");
           setPasswordMode(false);
           lockSubmit(false);
           return;
         }
-        if (!emailRe.test(email)) {
-          setStatus("err", "Digite um e-mail válido.");
+
+        const resolved = resolverIdentificador(raw);
+        if (!resolved.valid) {
+          setStatus("err", "Digite um e-mail ou telefone valido.");
           setPasswordMode(false);
           lockSubmit(true);
           return;
         }
 
-        setStatus("", "Verificando e-mail...");
+        setStatus("", "Verificando cadastro...");
         const seq = ++requestSeq;
         try {
           const params = new URLSearchParams({
-            email: email,
+            identifier: resolved.value,
             csrf_token: csrfToken
           });
           const resp = await fetch(`/api/client/email-status?${params.toString()}`, {
@@ -332,46 +355,46 @@
           if (seq !== requestSeq) return;
 
           if (!data.valid) {
-            setStatus("err", data.message || "Digite um e-mail válido.");
+            setStatus("err", data.message || "Digite um e-mail ou telefone valido.");
             setPasswordMode(false);
             lockSubmit(true);
             return;
           }
           if (!data.exists) {
-            setStatus("err", data.message || "Este e-mail não existe no banco.");
+            setStatus("err", data.message || "Cadastro nao encontrado.");
             setPasswordMode(false);
             lockSubmit(true);
             return;
           }
           if (data.status === "setup_required" || data.status === "paid_order" || data.requires_password_setup) {
             setPasswordMode(true);
-            setStatus("ok", data.message || "Primeiro acesso detectado. Clique em Entrar para receber o código.");
+            setStatus("ok", data.message || "Primeiro acesso detectado. Clique em Entrar para receber o codigo.");
             lockSubmit(false);
             return;
           }
           setPasswordMode(false);
-          setStatus("ok", data.message || "E-mail encontrado.");
+          setStatus("ok", data.message || "Cadastro encontrado.");
           lockSubmit(false);
         } catch (_) {
           if (seq !== requestSeq) return;
           setPasswordMode(false);
-          setStatus("", "Não foi possível validar o e-mail agora.");
+          setStatus("", "Nao foi possivel validar o cadastro agora.");
           lockSubmit(false);
         }
       }
 
-      emailInput.addEventListener("input", function(){
+      loginInput.addEventListener("input", function(){
         clearTimeout(timer);
-        timer = setTimeout(() => validarEmailAgora(emailInput.value), 350);
+        timer = setTimeout(() => validarLoginAgora(loginInput.value), 350);
       });
 
-      emailInput.addEventListener("blur", function(){
+      loginInput.addEventListener("blur", function(){
         clearTimeout(timer);
-        validarEmailAgora(emailInput.value);
+        validarLoginAgora(loginInput.value);
       });
 
-      if ((emailInput.value || "").trim()) {
-        validarEmailAgora(emailInput.value);
+      if ((loginInput.value || "").trim()) {
+        validarLoginAgora(loginInput.value);
       } else {
         setPasswordMode(false);
       }

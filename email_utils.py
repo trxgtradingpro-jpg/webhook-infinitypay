@@ -10,6 +10,10 @@ GOOGLE_EMAIL_WEBHOOK = os.environ.get(
     "GOOGLE_EMAIL_WEBHOOK",
     "https://script.google.com/macros/s/AKfycbzqsLLYy7IfyEIYAyXD7yx8K9A5ojbNeOVyTVSEqLr6Y0dp3I5RgdgYjmeT7UYItkjuXw/exec",
 ).strip()
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://www.trxpro.com.br").strip().rstrip("/")
+EMAIL_BANNER_PATH = (os.environ.get("EMAIL_BANNER_PATH") or "/assets/banner-email.jpg").strip() or "/assets/banner-email.jpg"
+if not EMAIL_BANNER_PATH.startswith("/"):
+    EMAIL_BANNER_PATH = "/" + EMAIL_BANNER_PATH
 
 
 def _enviar_payload_email(payload):
@@ -33,7 +37,22 @@ def _arquivo_para_base64(caminho_arquivo):
         return base64.b64encode(f.read()).decode("utf-8")
 
 
-def enviar_email_com_anexo(destinatario, assunto, mensagem, caminho_arquivo):
+def _email_banner_url():
+    base = (PUBLIC_BASE_URL or "https://www.trxpro.com.br").strip().rstrip("/")
+    return f"{base}{EMAIL_BANNER_PATH}"
+
+
+def _email_banner_html():
+    url = _email_banner_url()
+    return (
+        f'<div style="padding:0;margin:0 0 14px;">'
+        f'<img src="{url}" alt="TRX PRO" '
+        f'style="display:block;width:100%;max-width:620px;height:auto;border:0;outline:none;text-decoration:none;">'
+        f'</div>'
+    )
+
+
+def enviar_email_com_anexo(destinatario, assunto, mensagem, caminho_arquivo, html=None):
     arquivo_base64 = _arquivo_para_base64(caminho_arquivo)
     payload = {
         "email": destinatario,
@@ -42,6 +61,8 @@ def enviar_email_com_anexo(destinatario, assunto, mensagem, caminho_arquivo):
         "filename": os.path.basename(caminho_arquivo),
         "file_base64": arquivo_base64,
     }
+    if html:
+        payload["html"] = html
     _enviar_payload_email(payload)
 
 
@@ -129,9 +150,35 @@ WhatsApp 2: +55 11 98175-9207
 Bom uso
 """
     assunto = f"Seu plano {nome_plano_fmt} - Acesso Liberado"
+    banner_html = _email_banner_html()
+    html = f"""
+    <div style="font-family:Arial,Helvetica,sans-serif;background:#060b16;padding:24px;">
+      <div style="max-width:620px;margin:0 auto;background:#0d1629;border:1px solid #203354;border-radius:14px;overflow:hidden;">
+        {banner_html}
+        <div style="padding:18px 20px;background:linear-gradient(90deg,#16a34a,#0ea5e9);color:#04111d;font-weight:800;font-size:18px;">
+          Acesso Liberado - {nome_plano_fmt}
+        </div>
+        <div style="padding:22px 20px;color:#eaf2ff;line-height:1.55;">
+          <p style="margin:0 0 12px;">{saudacao}!</p>
+          <p style="margin:0 0 12px;">Pagamento confirmado com sucesso.</p>
+          <div style="margin:14px 0;padding:14px;border:1px solid #27436c;border-radius:12px;background:#0a1323;">
+            <div style="margin-bottom:8px;"><strong>Plano adquirido:</strong> {nome_plano_fmt}</div>
+            <div><strong>Senha do arquivo:</strong> {senha}</div>
+          </div>
+          <p style="margin:0 0 12px;"><strong>Tutorial:</strong> https://youtu.be/u3GWhwR8bcQ?si=3mb8yraHc_KKruFF</p>
+          <p style="margin:0 0 12px;"><strong>Comunidade oficial:</strong> https://chat.whatsapp.com/KPcaKf6OsaQHG2cUPAU1CE</p>
+          <p style="margin:0 0 12px;">O arquivo do seu plano esta em anexo neste e-mail.</p>
+          <p style="margin:0;color:#9eb2d4;font-size:12px;">
+            Importante: guarde sua senha e nao compartilhe o arquivo.
+          </p>
+        </div>
+      </div>
+    </div>
+    """
     enviar_email_com_anexo(
         destinatario=destinatario,
         assunto=assunto,
         mensagem=mensagem,
         caminho_arquivo=arquivo,
+        html=html,
     )

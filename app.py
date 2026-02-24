@@ -93,6 +93,7 @@ from database import (
     listar_pedidos_pagos_por_email,
     listar_pedidos_acesso_por_email,
     buscar_ultimo_pedido_pago_por_email,
+    buscar_ultimo_pedido_pago_por_telefone,
     buscar_onboarding_progresso_cliente,
     listar_onboarding_progresso_todos,
     salvar_onboarding_progresso_cliente,
@@ -1579,6 +1580,59 @@ def normalizar_telefone(telefone):
     return re.sub(r"\D", "", telefone or "")[:20]
 
 
+def normalizar_telefone_login(telefone):
+    telefone_num = normalizar_telefone(telefone)
+    if telefone_num.startswith("55") and len(telefone_num) > 11:
+        telefone_num = telefone_num[2:]
+    return telefone_num
+
+
+def resolver_login_para_email(login_value):
+    raw_value = (login_value or "").strip()
+    email = normalizar_email(raw_value)
+    if EMAIL_RE.fullmatch(email):
+        return {
+            "valid": True,
+            "kind": "email",
+            "email": email,
+            "phone": "",
+        }
+
+    telefone = normalizar_telefone_login(raw_value)
+    if len(telefone) not in {10, 11}:
+        return {
+            "valid": False,
+            "kind": "invalid",
+            "email": "",
+            "phone": "",
+        }
+
+    pedido = buscar_ultimo_pedido_pago_por_telefone(telefone)
+    if not pedido:
+        return {
+            "valid": True,
+            "kind": "phone",
+            "email": "",
+            "phone": telefone,
+        }
+
+    email_pedido = normalizar_email((pedido or {}).get("email") or "")
+    if not EMAIL_RE.fullmatch(email_pedido):
+        return {
+            "valid": True,
+            "kind": "phone",
+            "email": "",
+            "phone": telefone,
+        }
+
+    return {
+        "valid": True,
+        "kind": "phone",
+        "email": email_pedido,
+        "phone": telefone,
+    }
+
+
 def mascarar_nome(nome):
     nome = (nome or "").strip()
     if not nome:
@@ -1847,6 +1901,21 @@ def montar_url_absoluta(path):
     return f"{base}{path}"
 
 
+def montar_banner_email_html():
+    banner_path = (os.environ.get("EMAIL_BANNER_PATH") or "/assets/banner-email.jpg").strip()
+    if not banner_path:
+        banner_path = "/assets/banner-email.jpg"
+    if not banner_path.startswith("/"):
+        banner_path = "/" + banner_path
+    banner_url = montar_url_absoluta(banner_path)
+    return (
+        f'<div style="padding:0;margin:0 0 14px;">'
+        f'<img src="{banner_url}" alt="TRX PRO" '
+        f'style="display:block;width:100%;max-width:620px;height:auto;border:0;outline:none;text-decoration:none;">'
+        f'</div>'
+    )
+
+
 def gerar_token_sucesso_order(order_id):
     order_norm = (order_id or "").strip()
     if not order_norm:
@@ -1971,9 +2040,11 @@ def enviar_email_primeiro_acesso_cliente(destinatario, nome, senha_temporaria):
         "Se n\u00e3o foi voc\u00ea, responda este e-mail imediatamente.\n\n"
         "Equipe TRX PRO"
     )
+    banner_html = montar_banner_email_html()
     html = f"""
     <div style="font-family:Arial,Helvetica,sans-serif;background:#060b16;padding:24px;">
       <div style="max-width:620px;margin:0 auto;background:#0d1629;border:1px solid #203354;border-radius:14px;overflow:hidden;">
+        {banner_html}
         <div style="padding:18px 20px;background:linear-gradient(90deg,#16a34a,#0ea5e9);color:#04111d;font-weight:800;font-size:18px;">
           Acesso &Aacute;rea do Cliente TRX PRO
         </div>
@@ -2011,9 +2082,11 @@ def enviar_email_codigo_cliente(destinatario, nome, codigo, ttl_seconds):
         f"Abra o link para confirmar e criar sua senha:\n{link_confirmar}\n\n"
         "Se voc\u00ea n\u00e3o solicitou essa altera\u00e7\u00e3o, ignore este e-mail."
     )
+    banner_html = montar_banner_email_html()
     html = f"""
     <div style="font-family:Arial,Helvetica,sans-serif;background:#050912;padding:24px;">
       <div style="max-width:620px;margin:0 auto;background:#0d1629;border:1px solid #203354;border-radius:14px;overflow:hidden;">
+        {banner_html}
         <div style="padding:18px 20px;background:linear-gradient(90deg,#f59e0b,#ef4444);color:#1c0902;font-weight:800;font-size:18px;">
           Confirma&ccedil;&atilde;o de Seguran&ccedil;a TRX PRO
         </div>
@@ -2131,6 +2204,36 @@ def verificar_status_email_cliente(email):
         "status": "not_found",
         "requires_password_setup": False,
     }
+
+
+def verificar_status_login_cliente(login_value):
+    resolved = resolver_login_para_email(login_value)
+    if not resolved.get("valid"):
+        return {
+            "valid": False,
+            "exists": False,
+            "status": "invalid",
+            "requires_password_setup": False,
+            "identifier_type": "invalid",
+            "resolved_email": "",
+        }
+
+    identifier_type = resolved.get("kind") or "email"
+    resolved_email = normalizar_email(resolved.get("email") or "")
+    if not EMAIL_RE.fullmatch(resolved_email):
+        return {
+            "valid": True,
+            "exists": False,
+            "status": "not_found",
+            "requires_password_setup": False,
+            "identifier_type": identifier_type,
+            "resolved_email": "",
+        }
+
+    status = verificar_status_email_cliente(resolved_email)
+    status["identifier_type"] = identifier_type
+    status["resolved_email"] = resolved_email
+    return status
 
 
 def iniciar_recuperacao_senha_cliente(email):
@@ -4247,13 +4350,15 @@ def api_cliente_email_status():
     if not validar_csrf_token(token):
         return jsonify({"ok": False, "error": "csrf_invalid"}), 403
 
-    email = normalizar_email(request.args.get("email") or "")
+    identifier = (request.args.get("identifier") or request.args.get("email") or "").strip()
+    identifier_key = normalizar_email(identifier) or normalizar_telefone(identifier)
     ip = obter_ip_request() or (request.remote_addr or "0.0.0.0")
-    chave_email = hashlib.sha256(f"{ip}:{email}".encode("utf-8")).hexdigest()[:32]
+    chave_email = hashlib.sha256(f"{ip}:{identifier_key}".encode("utf-8")).hexdigest()[:32]
     if excedeu_rate_limit(f"get_cliente_email_status_pair:{chave_email}", limite=20, janela_segundos=60):
         return jsonify({"ok": False, "error": "rate_limited"}), 429
 
-    status = verificar_status_email_cliente(email)
+    status = verificar_status_login_cliente(identifier)
+    identifier_type = status.get("identifier_type") or "email"
     if not status["valid"]:
         return jsonify({
             "ok": True,
@@ -4261,18 +4366,21 @@ def api_cliente_email_status():
             "exists": False,
             "status": "invalid",
             "requires_password_setup": False,
-            "message": "Digite um e-mail v\u00e1lido."
+            "message": "Digite um e-mail ou telefone v\u00e1lido."
         })
 
     if status["exists"]:
         if status["status"] == "setup_required":
-            mensagem = "Primeiro acesso detectado. Clique em Entrar para receber o c\u00f3digo de 6 d\u00edgitos no e-mail."
+            mensagem = "Primeiro acesso detectado. Clique em Entrar para receber o codigo de 6 digitos no e-mail."
         elif status["status"] == "paid_order":
-            mensagem = "E-mail encontrado em compra aprovada. Clique em Entrar para preparar seu primeiro acesso."
+            mensagem = "Compra aprovada encontrada. Clique em Entrar para preparar seu primeiro acesso."
         else:
-            mensagem = "E-mail encontrado no banco."
+            mensagem = "Cadastro encontrado no banco."
     else:
-        mensagem = "Este e-mail n\u00e3o existe no banco."
+        if identifier_type == "phone":
+            mensagem = "Este telefone nao existe no banco."
+        else:
+            mensagem = "Este e-mail nao existe no banco."
 
     return jsonify({
         "ok": True,
@@ -4280,6 +4388,7 @@ def api_cliente_email_status():
         "exists": bool(status["exists"]),
         "status": status["status"],
         "requires_password_setup": bool(status.get("requires_password_setup")),
+        "identifier_type": identifier_type,
         "message": mensagem,
     })
 
@@ -4417,8 +4526,8 @@ def cliente_login():
     info_key = (request.args.get("info") or "").strip()
     info = info_key
     if info_key == "senha_ja_configurada":
-        info = "Senha j\u00e1 configurada. Entre com seu e-mail e senha."
-    email_form = normalizar_email(request.args.get("email") or "")
+        info = "Senha ja configurada. Entre com seu e-mail ou telefone e senha."
+    login_form = (request.args.get("login_id") or request.args.get("email") or "").strip()
     remember_checked = False
 
     if request.method == "POST":
@@ -4426,33 +4535,41 @@ def cliente_login():
         if not validar_csrf_token(token):
             return "Falha de valida\u00e7\u00e3o CSRF.", 403
 
-        email_form = normalizar_email(request.form.get("email") or "")
+        login_form = (request.form.get("login_id") or request.form.get("email") or "").strip()
         senha = request.form.get("senha") or ""
         remember_checked = (request.form.get("remember_me") or "").strip().lower() in {"1", "on", "true", "yes"}
 
-        if not EMAIL_RE.fullmatch(email_form):
-            erro = "Informe um e-mail v\u00e1lido."
+        resolved_login = resolver_login_para_email(login_form)
+        email_login = normalizar_email(resolved_login.get("email") or "")
+
+        if not resolved_login.get("valid"):
+            erro = "Informe um e-mail ou telefone valido."
         else:
-            conta = buscar_conta_cliente_por_email(email_form)
+            conta = buscar_conta_cliente_por_email(email_login) if EMAIL_RE.fullmatch(email_login) else None
             if not conta:
-                criado = provisionar_conta_cliente_por_email(email_form, enviar_email_credenciais=False)
+                criado = False
+                if EMAIL_RE.fullmatch(email_login):
+                    criado = provisionar_conta_cliente_por_email(email_login, enviar_email_credenciais=False)
                 if criado:
-                    conta = buscar_conta_cliente_por_email(email_form)
+                    conta = buscar_conta_cliente_por_email(email_login)
                 if not conta:
-                    erro = "Este e-mail n\u00e3o existe no banco."
+                    if (resolved_login.get("kind") or "") == "phone":
+                        erro = "Este telefone nao existe no banco."
+                    else:
+                        erro = "Este e-mail nao existe no banco."
 
             if not erro and conta_cliente_requer_configuracao_senha(conta):
                 try:
                     ok_fluxo, msg_fluxo = iniciar_fluxo_codigo_primeiro_acesso(
-                        email=email_form,
+                        email=email_login,
                         conta=conta,
                         remember=remember_checked
                     )
                     if ok_fluxo:
-                        return redirect(f"/login/confirmar-codigo?info=codigo_enviado&email={quote(email_form, safe='')}")
+                        return redirect(f"/login/confirmar-codigo?info=codigo_enviado&email={quote(email_login, safe='')}")
                     erro = msg_fluxo or "N\u00e3o foi poss\u00edvel iniciar o primeiro acesso."
                 except Exception as exc:
-                    print(f"[CLIENTE] Falha ao enviar c\u00f3digo de primeiro acesso para {email_form}: {exc}", flush=True)
+                    print(f"[CLIENTE] Falha ao enviar c\u00f3digo de primeiro acesso para {email_login}: {exc}", flush=True)
                     erro = "N\u00e3o foi poss\u00edvel enviar o c\u00f3digo agora. Tente novamente em instantes."
 
             if not erro and conta:
@@ -4464,14 +4581,14 @@ def cliente_login():
                 elif not check_password_hash(senha_hash, senha):
                     erro = "E-mail ou senha inv\u00e1lidos."
                 else:
-                    return autenticar_cliente_resposta(email_form, remember=remember_checked)
+                    return autenticar_cliente_resposta(email_login, remember=remember_checked)
 
     return render_template(
         "client_login.html",
         csrf_token=gerar_csrf_token(),
         erro=erro,
         info=info,
-        email=email_form,
+        login_id=login_form,
         remember_checked=remember_checked
     )
 

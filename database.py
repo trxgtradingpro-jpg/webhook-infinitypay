@@ -2305,6 +2305,33 @@ def _normalizar_email_interno(email):
     return (email or "").strip().lower()[:190]
 
 
+def _normalizar_telefone_interno(telefone):
+    digits = "".join(ch for ch in str(telefone or "") if ch.isdigit())
+    return digits[:20]
+
+
+def _variacoes_telefone_interno(telefone):
+    tel = _normalizar_telefone_interno(telefone)
+    if not tel:
+        return []
+
+    variacoes = []
+
+    def _add(valor):
+        if valor and valor not in variacoes:
+            variacoes.append(valor)
+
+    _add(tel)
+    if tel.startswith("55") and len(tel) > 11:
+        _add(tel[2:])
+    if not tel.startswith("55"):
+        _add(f"55{tel}")
+    if len(tel) > 11:
+        _add(tel[-11:])
+
+    return variacoes
+
+
 def buscar_conta_cliente_por_email(email):
     email_norm = _normalizar_email_interno(email)
     if not email_norm:
@@ -2981,6 +3008,43 @@ def buscar_ultimo_pedido_pago_por_email(email):
     if not pedidos:
         return None
     return pedidos[0]
+
+
+def buscar_ultimo_pedido_pago_por_telefone(telefone):
+    variacoes = _variacoes_telefone_interno(telefone)
+    if not variacoes:
+        return None
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT order_id, plano, nome, email, telefone, status, created_at,
+               checkout_slug, affiliate_slug
+        FROM orders
+        WHERE UPPER(BTRIM(COALESCE(status, ''))) = 'PAGO'
+          AND REGEXP_REPLACE(COALESCE(telefone, ''), '\\D', '', 'g') = ANY(%s)
+        ORDER BY created_at DESC
+        LIMIT 1
+    """, (variacoes,))
+
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "order_id": row[0],
+        "plano": row[1],
+        "nome": row[2],
+        "email": row[3],
+        "telefone": row[4],
+        "status": row[5],
+        "created_at": row[6],
+        "checkout_slug": row[7],
+        "affiliate_slug": row[8],
+    }
 
 
 def _valor_json_compat(v):

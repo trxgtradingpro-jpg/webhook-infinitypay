@@ -39,3 +39,37 @@ def test_cliente_login_csrf_invalido(app_module, client, monkeypatch):
     )
     assert response.status_code == 403
 
+
+def test_cliente_login_sucesso_por_telefone(app_module, client, monkeypatch):
+    senha = "SenhaForte@123"
+    email = "cliente@example.com"
+    conta = {
+        "email": email,
+        "password_hash": generate_password_hash(senha),
+        "first_access_required": False,
+    }
+
+    monkeypatch.setattr(app_module, "validar_csrf_token", lambda token: True)
+    monkeypatch.setattr(
+        app_module,
+        "buscar_ultimo_pedido_pago_por_telefone",
+        lambda telefone: {"email": email} if telefone == "11999999999" else None,
+    )
+    monkeypatch.setattr(app_module, "buscar_conta_cliente_por_email", lambda e: conta if e == email else None)
+    monkeypatch.setattr(app_module, "conta_cliente_requer_configuracao_senha", lambda c: False)
+    monkeypatch.setattr(app_module, "atualizar_ultimo_login_conta_cliente", lambda e: True)
+    monkeypatch.setattr(app_module, "limpar_remember_token_cliente", lambda e: True)
+
+    response = client.post(
+        "/login",
+        data={
+            "csrf_token": "ok",
+            "login_id": "(11) 99999-9999",
+            "senha": senha,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/minha-conta")
+
