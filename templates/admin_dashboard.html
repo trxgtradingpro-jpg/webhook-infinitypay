@@ -8,6 +8,58 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/admin-theme.css?v=20260216">
+  <style>
+    .status-inline {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .wa-send-icon {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1px solid #22c55e;
+      background: rgba(34, 197, 94, 0.15);
+      color: #86efac;
+      text-decoration: none;
+    }
+    .wa-send-icon:hover {
+      border-color: #86efac;
+      background: rgba(34, 197, 94, 0.25);
+    }
+    .wa-send-icon svg {
+      width: 12px;
+      height: 12px;
+      fill: currentColor;
+      display: block;
+    }
+    .wa-tooltip {
+      display: none;
+      position: absolute;
+      left: 28px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 40;
+      width: min(380px, 70vw);
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      background: #0b1220;
+      color: #e2e8f0;
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      pointer-events: none;
+    }
+    .wa-send-icon:hover .wa-tooltip {
+      display: block;
+    }
+  </style>
 </head>
 <body>
   <main class="admin-shell">
@@ -81,6 +133,7 @@
           <thead>
             <tr>
               <th>Email</th>
+              <th>Telefone</th>
               <th>Progresso</th>
               <th>Status</th>
               <th>Parou em</th>
@@ -93,16 +146,34 @@
             {% for item in onboarding_items %}
               <tr>
                 {% set email_exibir = (item.email if mostrar_bruto else item.email_masked) %}
+                {% set telefone_exibir = (item.telefone if mostrar_bruto else item.telefone_masked) %}
                 <td>{{ email_exibir or '-' }}</td>
+                <td>{{ telefone_exibir or '-' }}</td>
                 <td><span class="mono">{{ item.done_count }}/{{ item.total_steps }}</span> ({{ item.percent }}%)</td>
                 <td>
-                  {% if item.status == 'Concluido' %}
-                    <span class="ok">Concluido</span>
-                  {% elif item.status == 'Em progresso' %}
-                    <span class="pend">Em progresso</span>
-                  {% else %}
-                    <span class="muted">Nao iniciado</span>
-                  {% endif %}
+                  <div class="status-inline">
+                    {% if item.status == 'Concluido' %}
+                      <span class="ok">Concluido</span>
+                    {% elif item.status == 'Em progresso' %}
+                      <span class="pend">Em progresso</span>
+                    {% else %}
+                      <span class="muted">Nao iniciado</span>
+                    {% endif %}
+                    {% if item.activation_whatsapp_route %}
+                      <a
+                        class="wa-send-icon"
+                        href="{{ item.activation_whatsapp_route }}"
+                        target="_blank"
+                        rel="noopener"
+                        aria-label="Enviar mensagem de ativacao por WhatsApp"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M2 21l20-9L2 3l4 7 8 2-8 2-4 7z"></path>
+                        </svg>
+                        <span class="wa-tooltip">{{ item.activation_whatsapp_preview }}</span>
+                      </a>
+                    {% endif %}
+                  </div>
                 </td>
                 <td>{{ item.etapa_atual }}</td>
                 <td>{{ item.atualizado_em }}</td>
@@ -111,7 +182,7 @@
               </tr>
             {% else %}
               <tr>
-                <td colspan="7" class="muted">Sem dados de onboarding para exibir.</td>
+                <td colspan="8" class="muted">Sem dados de onboarding para exibir.</td>
               </tr>
             {% endfor %}
           </tbody>

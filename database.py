@@ -311,6 +311,9 @@ def init_db():
     cur.execute("ALTER TABLE customer_onboarding_progress ADD COLUMN IF NOT EXISTS zip_extracted BOOLEAN NOT NULL DEFAULT FALSE")
     cur.execute("ALTER TABLE customer_onboarding_progress ADD COLUMN IF NOT EXISTS tool_installed BOOLEAN NOT NULL DEFAULT FALSE")
     cur.execute("ALTER TABLE customer_onboarding_progress ADD COLUMN IF NOT EXISTS robot_activated BOOLEAN NOT NULL DEFAULT FALSE")
+    cur.execute("ALTER TABLE customer_onboarding_progress ADD COLUMN IF NOT EXISTS activation_whatsapp_last_stage TEXT")
+    cur.execute("ALTER TABLE customer_onboarding_progress ADD COLUMN IF NOT EXISTS activation_whatsapp_last_sent_at TIMESTAMP")
+    cur.execute("ALTER TABLE customer_onboarding_progress ADD COLUMN IF NOT EXISTS activation_whatsapp_send_count INTEGER NOT NULL DEFAULT 0")
     cur.execute("ALTER TABLE customer_onboarding_progress ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()")
     cur.execute("ALTER TABLE customer_onboarding_progress ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_customer_onboarding_progress_updated_at ON customer_onboarding_progress(updated_at DESC)")
@@ -2671,6 +2674,7 @@ def buscar_onboarding_progresso_cliente(email):
     cur = conn.cursor()
     cur.execute("""
         SELECT email_accessed, tool_downloaded, zip_extracted, tool_installed, robot_activated,
+               activation_whatsapp_last_stage, activation_whatsapp_last_sent_at, activation_whatsapp_send_count,
                created_at, updated_at
         FROM customer_onboarding_progress
         WHERE email = %s
@@ -2688,6 +2692,9 @@ def buscar_onboarding_progresso_cliente(email):
             "zip_extracted": False,
             "tool_installed": False,
             "robot_activated": False,
+            "activation_whatsapp_last_stage": None,
+            "activation_whatsapp_last_sent_at": None,
+            "activation_whatsapp_send_count": 0,
             "created_at": None,
             "updated_at": None,
         }
@@ -2699,8 +2706,11 @@ def buscar_onboarding_progresso_cliente(email):
         "zip_extracted": bool(row[2]),
         "tool_installed": bool(row[3]),
         "robot_activated": bool(row[4]),
-        "created_at": row[5],
-        "updated_at": row[6],
+        "activation_whatsapp_last_stage": row[5],
+        "activation_whatsapp_last_sent_at": row[6],
+        "activation_whatsapp_send_count": int(row[7] or 0),
+        "created_at": row[8],
+        "updated_at": row[9],
     }
 
 
@@ -2751,6 +2761,39 @@ def salvar_onboarding_progresso_cliente(email, progresso):
     return buscar_onboarding_progresso_cliente(email_norm)
 
 
+def registrar_envio_whatsapp_ativacao(email, stage_token):
+    email_norm = _normalizar_email_interno(email)
+    if not email_norm:
+        return False
+
+    stage = (stage_token or "").strip().lower() or None
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO customer_onboarding_progress (
+            email,
+            activation_whatsapp_last_stage,
+            activation_whatsapp_last_sent_at,
+            activation_whatsapp_send_count,
+            created_at,
+            updated_at
+        )
+        VALUES (%s, %s, NOW(), 1, NOW(), NOW())
+        ON CONFLICT (email) DO UPDATE
+        SET activation_whatsapp_last_stage = EXCLUDED.activation_whatsapp_last_stage,
+            activation_whatsapp_last_sent_at = NOW(),
+            activation_whatsapp_send_count = COALESCE(customer_onboarding_progress.activation_whatsapp_send_count, 0) + 1,
+            updated_at = NOW()
+    """, (email_norm, stage))
+
+    ok = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    conn.close()
+    return ok
+
+
 def listar_onboarding_progresso_todos(limit=500):
     limite = None
     if limit is not None:
@@ -2763,6 +2806,8 @@ def listar_onboarding_progresso_todos(limit=500):
             SELECT
                 LOWER(BTRIM(COALESCE(email, ''))) AS email_norm,
                 email AS account_email,
+                nome AS account_name,
+                telefone AS account_phone,
                 created_at AS account_created_at
             FROM customer_accounts
             WHERE COALESCE(BTRIM(email), '') <> ''
@@ -2776,6 +2821,9 @@ def listar_onboarding_progresso_todos(limit=500):
                 zip_extracted,
                 tool_installed,
                 robot_activated,
+                activation_whatsapp_last_stage,
+                activation_whatsapp_last_sent_at,
+                COALESCE(activation_whatsapp_send_count, 0) AS activation_whatsapp_send_count,
                 created_at AS progress_created_at,
                 updated_at AS progress_updated_at
             FROM customer_onboarding_progress
@@ -2785,11 +2833,16 @@ def listar_onboarding_progresso_todos(limit=500):
             SELECT
                 COALESCE(c.email_norm, p.email_norm) AS email_norm,
                 COALESCE(c.account_email, p.progress_email) AS email,
+                c.account_name,
+                c.account_phone,
                 COALESCE(p.email_accessed, FALSE) AS email_accessed,
                 COALESCE(p.tool_downloaded, FALSE) AS tool_downloaded,
                 COALESCE(p.zip_extracted, FALSE) AS zip_extracted,
                 COALESCE(p.tool_installed, FALSE) AS tool_installed,
                 COALESCE(p.robot_activated, FALSE) AS robot_activated,
+                p.activation_whatsapp_last_stage,
+                p.activation_whatsapp_last_sent_at,
+                COALESCE(p.activation_whatsapp_send_count, 0) AS activation_whatsapp_send_count,
                 p.progress_created_at,
                 p.progress_updated_at,
                 c.account_created_at
@@ -2801,6 +2854,8 @@ def listar_onboarding_progresso_todos(limit=500):
             SELECT DISTINCT ON (LOWER(BTRIM(COALESCE(email, ''))))
                 LOWER(BTRIM(COALESCE(email, ''))) AS email_norm,
                 order_id,
+                nome,
+                telefone,
                 plano,
                 status,
                 created_at
@@ -2819,15 +2874,22 @@ def listar_onboarding_progresso_todos(limit=500):
         )
         SELECT
             b.email,
+            b.account_name,
+            b.account_phone,
             b.email_accessed,
             b.tool_downloaded,
             b.zip_extracted,
             b.tool_installed,
             b.robot_activated,
+            b.activation_whatsapp_last_stage,
+            b.activation_whatsapp_last_sent_at,
+            b.activation_whatsapp_send_count,
             b.progress_created_at,
             b.progress_updated_at,
             b.account_created_at,
             up.order_id,
+            up.nome,
+            up.telefone,
             up.plano,
             up.status,
             up.created_at,
@@ -2855,20 +2917,27 @@ def listar_onboarding_progresso_todos(limit=500):
     for row in rows:
         dados.append({
             "email": row[0],
-            "email_accessed": bool(row[1]),
-            "tool_downloaded": bool(row[2]),
-            "zip_extracted": bool(row[3]),
-            "tool_installed": bool(row[4]),
-            "robot_activated": bool(row[5]),
-            "progress_created_at": row[6],
-            "progress_updated_at": row[7],
-            "account_created_at": row[8],
-            "last_order_id": row[9],
-            "last_order_plan": row[10],
-            "last_order_status": row[11],
-            "last_order_created_at": row[12],
-            "paid_orders": int(row[13] or 0),
-            "total_orders": int(row[14] or 0),
+            "account_name": row[1],
+            "account_phone": row[2],
+            "email_accessed": bool(row[3]),
+            "tool_downloaded": bool(row[4]),
+            "zip_extracted": bool(row[5]),
+            "tool_installed": bool(row[6]),
+            "robot_activated": bool(row[7]),
+            "activation_whatsapp_last_stage": row[8],
+            "activation_whatsapp_last_sent_at": row[9],
+            "activation_whatsapp_send_count": int(row[10] or 0),
+            "progress_created_at": row[11],
+            "progress_updated_at": row[12],
+            "account_created_at": row[13],
+            "last_order_id": row[14],
+            "last_order_name": row[15],
+            "last_order_phone": row[16],
+            "last_order_plan": row[17],
+            "last_order_status": row[18],
+            "last_order_created_at": row[19],
+            "paid_orders": int(row[20] or 0),
+            "total_orders": int(row[21] or 0),
         })
     return dados
 

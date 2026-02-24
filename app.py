@@ -97,6 +97,7 @@ from database import (
     buscar_onboarding_progresso_cliente,
     listar_onboarding_progresso_todos,
     salvar_onboarding_progresso_cliente,
+    registrar_envio_whatsapp_ativacao,
     salvar_remember_token_cliente,
     limpar_remember_token_cliente,
     buscar_conta_cliente_por_remember_hash,
@@ -966,6 +967,7 @@ def montar_progresso_onboarding_cliente(email):
 def montar_resumo_onboarding_admin(linhas):
     resultados = []
     total_steps = len(ONBOARDING_PROGRESS_STEPS)
+    csrf_token = gerar_csrf_token()
 
     for linha in (linhas or []):
         steps_bool = []
@@ -1017,6 +1019,8 @@ def montar_resumo_onboarding_admin(linhas):
             "total_steps": total_steps,
             "steps": steps_bool,
         }
+        whatsapp_stage_token = montar_stage_token_onboarding(whatsapp_payload)
+        whatsapp_preview = montar_mensagem_whatsapp_ativacao(whatsapp_payload)
         whatsapp_link = gerar_link_whatsapp_ativacao(whatsapp_payload)
         whatsapp_status = ""
         if not whatsapp_link:
@@ -1024,8 +1028,24 @@ def montar_resumo_onboarding_admin(linhas):
             if telefone_contato:
                 whatsapp_status = "telefone invalido"
 
+        last_stage = ((linha or {}).get("activation_whatsapp_last_stage") or "").strip().lower()
+        last_sent_at = (linha or {}).get("activation_whatsapp_last_sent_at")
+        ja_enviado_nesta_etapa = bool(
+            last_sent_at and last_stage and last_stage == whatsapp_stage_token
+        )
+
+        whatsapp_route = None
+        email_item = normalizar_email((linha or {}).get("email") or "")
+        if whatsapp_link and not ja_enviado_nesta_etapa and EMAIL_RE.fullmatch(email_item):
+            whatsapp_route = (
+                "/admin/onboarding/whatsapp"
+                f"?email={quote(email_item, safe='')}"
+                f"&stage={quote(whatsapp_stage_token, safe='')}"
+                f"&csrf_token={quote(csrf_token, safe='')}"
+            )
+
         resultados.append({
-            "email": (linha or {}).get("email"),
+            "email": email_item,
             "email_masked": mascarar_email_compacto((linha or {}).get("email")),
             "nome": nome_contato or "",
             "telefone": telefone_contato or "",
@@ -1042,6 +1062,11 @@ def montar_resumo_onboarding_admin(linhas):
             "total_orders": int((linha or {}).get("total_orders") or 0),
             "activation_whatsapp_link": whatsapp_link,
             "activation_whatsapp_status": whatsapp_status,
+            "activation_whatsapp_route": whatsapp_route,
+            "activation_whatsapp_preview": whatsapp_preview,
+            "activation_whatsapp_stage": whatsapp_stage_token,
+            "activation_whatsapp_sent_current_stage": ja_enviado_nesta_etapa,
+            "activation_whatsapp_last_sent_at": last_sent_at,
             "steps": steps_bool,
         })
 
@@ -2548,6 +2573,62 @@ def detectar_etapa_onboarding_pendente(payload):
     if done_count >= total_steps:
         return "completed", "Ativacao concluida"
     return "not_started", "Primeira etapa"
+
+
+def montar_stage_token_onboarding(payload):
+    stage_key, _ = detectar_etapa_onboarding_pendente(payload)
+    return (stage_key or "").strip().lower() or "not_started"
+
+
+def montar_payload_whatsapp_ativacao_por_email(email):
+    email_norm = normalizar_email(email)
+    if not EMAIL_RE.fullmatch(email_norm):
+        return None
+
+    progresso = buscar_onboarding_progresso_cliente(email_norm) or {}
+    conta = buscar_conta_cliente_por_email(email_norm) or {}
+    ultimo_pedido = buscar_ultimo_pedido_pago_por_email(email_norm) or {}
+
+    steps_bool = []
+    for chave, label in ONBOARDING_PROGRESS_STEPS:
+        steps_bool.append({
+            "key": chave,
+            "label": label,
+            "checked": bool((progresso or {}).get(chave)),
+        })
+
+    total_steps = len(steps_bool)
+    done_count = sum(1 for step in steps_bool if step["checked"])
+    percent = int(round((done_count * 100) / total_steps)) if total_steps else 0
+
+    if percent >= 100:
+        status = "Concluido"
+    elif done_count <= 0:
+        status = "Nao iniciado"
+    else:
+        status = "Em progresso"
+
+    nome_conta = descriptografar_texto_cliente((conta or {}).get("nome"))
+    telefone_conta = descriptografar_texto_cliente((conta or {}).get("telefone"))
+    nome_pedido = normalizar_nome((ultimo_pedido or {}).get("nome") or "")
+    telefone_pedido = (ultimo_pedido or {}).get("telefone") or ""
+
+    nome_contato = nome_pedido or normalizar_nome(nome_conta or "")
+    telefone_contato = normalizar_telefone(telefone_pedido or telefone_conta or "")
+
+    return {
+        "email": email_norm,
+        "nome": nome_contato or "",
+        "telefone": telefone_contato or "",
+        "plano": (ultimo_pedido.get("plano") or "").strip().lower(),
+        "status": status,
+        "done_count": done_count,
+        "total_steps": total_steps,
+        "steps": steps_bool,
+        "activation_whatsapp_last_stage": (progresso.get("activation_whatsapp_last_stage") or "").strip().lower(),
+        "activation_whatsapp_last_sent_at": progresso.get("activation_whatsapp_last_sent_at"),
+        "activation_whatsapp_send_count": int(progresso.get("activation_whatsapp_send_count") or 0),
+    }
 
 
 def montar_mensagem_whatsapp_ativacao(payload):
@@ -6256,6 +6337,44 @@ def admin_dashboard():
         filtro_plano=filtro_plano,
         planos=list(PLANOS.keys())
     )
+
+
+@app.route("/admin/onboarding/whatsapp")
+def admin_onboarding_whatsapp():
+    if not session.get("admin"):
+        return redirect("/admin/login")
+
+    token = (request.args.get("csrf_token") or "").strip()
+    if not validar_csrf_token(token):
+        return "CSRF token invalido", 403
+
+    email = normalizar_email(request.args.get("email") or "")
+    stage_hint = (request.args.get("stage") or "").strip().lower()
+    if not EMAIL_RE.fullmatch(email):
+        return redirect("/admin/dashboard?ok=0&msg=E-mail%20invalido%20para%20onboarding")
+
+    payload = montar_payload_whatsapp_ativacao_por_email(email)
+    if not payload:
+        return redirect("/admin/dashboard?ok=0&msg=Onboarding%20nao%20encontrado")
+
+    stage_token = montar_stage_token_onboarding(payload)
+    last_stage = (payload.get("activation_whatsapp_last_stage") or "").strip().lower()
+    last_sent_at = payload.get("activation_whatsapp_last_sent_at")
+    if stage_hint and stage_hint != stage_token:
+        return redirect("/admin/dashboard?ok=0&msg=Etapa%20de%20ativacao%20atualizada.%20Atualize%20a%20pagina")
+    if last_sent_at and last_stage == stage_token:
+        return redirect("/admin/dashboard?ok=1&msg=Mensagem%20de%20ativacao%20ja%20enviada%20nesta%20etapa")
+
+    link = gerar_link_whatsapp_ativacao(payload)
+    if not link:
+        return redirect("/admin/dashboard?ok=0&msg=Telefone%20invalido%20para%20WhatsApp")
+
+    try:
+        registrar_envio_whatsapp_ativacao(email, stage_token)
+    except Exception as exc:
+        print(f"[ADMIN] Falha ao registrar envio de WhatsApp onboarding para {email}: {exc}", flush=True)
+
+    return redirect(link)
 
 
 @app.route("/admin/usuario/adicionar", methods=["POST"])
