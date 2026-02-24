@@ -218,6 +218,16 @@ WHATSAPP_TEMPLATE = corrigir_texto_quebrado(os.environ.get(
     "WHATSAPP_TEMPLATE",
     "{nome}, seu pagamento do {plano} foi confirmado. Qualquer d\u00favida pode me chamar!"
 ))
+WHATSAPP_PENDENTE_PAGO_TEMPLATE = corrigir_texto_quebrado(os.environ.get(
+    "WHATSAPP_PENDENTE_PAGO_TEMPLATE",
+    (
+        "Ola {nome}, vi que seu pagamento do {plano} ficou pendente.\n\n"
+        "Voce quase concluiu sua compra e seu acesso ainda nao foi liberado.\n"
+        "Se quiser, eu te envio novamente o link oficial e te ajudo a finalizar agora.\n\n"
+        "Valor do plano: {valor}\n"
+        "{site}"
+    )
+))
 WA_SENDER_URL = os.environ.get("WA_SENDER_URL", "").strip()
 WA_SENDER_TOKEN = os.environ.get("WA_SENDER_TOKEN", "").strip()
 WHATSAPP_DELAY_MINUTES = int(os.environ.get("WHATSAPP_DELAY_MINUTES", "5"))
@@ -2446,6 +2456,37 @@ def formatar_telefone_whatsapp(telefone):
     raise ValueError("Telefone inv\u00e1lido para WhatsApp")
 
 
+def formatar_centavos_brl(valor_centavos):
+    try:
+        centavos = int(valor_centavos or 0)
+    except (TypeError, ValueError):
+        centavos = 0
+    valor = max(0, centavos) / 100.0
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def montar_mensagem_whatsapp_admin(order):
+    nome = (order.get("nome") or "").strip() or "cliente"
+    plano_id = (order.get("plano") or "").strip().lower()
+    plano_info = PLANOS.get(plano_id) or {}
+    plano_nome = plano_info.get("nome", order.get("plano", "plano"))
+    status_norm = (order.get("status") or "").strip().upper()
+    preco_centavos = int(plano_info.get("preco") or 0)
+
+    if status_norm == "PENDENTE" and preco_centavos > 0:
+        return WHATSAPP_PENDENTE_PAGO_TEMPLATE.format(
+            nome=nome,
+            plano=plano_nome,
+            valor=formatar_centavos_brl(preco_centavos),
+            site=PUBLIC_BASE_URL,
+        )
+
+    return WHATSAPP_MENSAGEM.format(
+        nome=nome,
+        plano=plano_nome
+    )
+
+
 def gerar_link_whatsapp(order):
     telefone_usuario = order.get("telefone")
     if not telefone_usuario:
@@ -2456,10 +2497,7 @@ def gerar_link_whatsapp(order):
     except ValueError:
         return None
 
-    mensagem = WHATSAPP_MENSAGEM.format(
-        nome=order.get("nome") or "",
-        plano=PLANOS.get(order.get("plano"), {}).get("nome", order.get("plano", ""))
-    )
+    mensagem = montar_mensagem_whatsapp_admin(order)
     return f"https://wa.me/{numero}?text={quote(mensagem)}"
 
 
