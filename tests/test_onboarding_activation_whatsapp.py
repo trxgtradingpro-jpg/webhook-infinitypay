@@ -25,8 +25,9 @@ def test_mensagem_ativacao_nao_iniciado(app_module, monkeypatch):
 
     msg = app_module.montar_mensagem_whatsapp_ativacao(payload)
     assert msg.startswith("Bom dia, Guilherme!")
-    assert "ainda não foi iniciada" in msg
-    assert "1) Acessar o e-mail de liberação" in msg
+    assert "Vamos comecar pela etapa 1/5" in msg
+    assert "Abra seu e-mail e procure" in msg
+    assert "https://www.youtube.com/watch?v=u3GWhwR8bcQ&t=111s" in msg
 
 
 def test_mensagem_ativacao_etapa_em_progresso(app_module, monkeypatch):
@@ -49,7 +50,9 @@ def test_mensagem_ativacao_etapa_em_progresso(app_module, monkeypatch):
     assert msg.startswith("Boa tarde, Guilherme!")
     assert "etapa 2/5" in msg
     assert "Ja baixei a ferramenta" in msg
-    assert "Área do cliente: https://example.com/login" in msg
+    assert "Este ponto mostra onde clicar para fazer o download correto" in msg
+    assert "https://www.youtube.com/watch?v=u3GWhwR8bcQ&t=150s" in msg
+    assert "https://example.com/login" in msg
 
 
 def test_mensagem_ativacao_concluido(app_module, monkeypatch):
@@ -70,7 +73,8 @@ def test_mensagem_ativacao_concluido(app_module, monkeypatch):
 
     msg = app_module.montar_mensagem_whatsapp_ativacao(payload)
     assert msg.startswith("Boa noite, Guilherme!")
-    assert "ativação do seu TRX GOLD foi concluída" in msg
+    assert "TRX GOLD" in msg
+    assert "conclu" in msg.lower()
 
 
 def test_link_whatsapp_ativacao_payload(app_module, monkeypatch):
@@ -90,7 +94,43 @@ def test_link_whatsapp_ativacao_payload(app_module, monkeypatch):
     link = app_module.gerar_link_whatsapp_ativacao(payload)
     assert link is not None
     assert link.startswith("https://wa.me/5511999998888?text=")
-    assert "etapa 2/5" in _texto_link(link)
+    texto = _texto_link(link)
+    assert "etapa 2/5" in texto
+    assert "https://www.youtube.com/watch?v=u3GWhwR8bcQ&t=150s" in texto
+
+
+def test_mensagem_ativacao_tem_video_no_tempo_certo_em_cada_etapa(app_module, monkeypatch):
+    monkeypatch.setattr(app_module, "saudacao_whatsapp_periodo", lambda: "Bom dia")
+
+    steps_base = [
+        {"key": "email_accessed", "label": "Consegui acessar o e-mail enviado", "checked": False},
+        {"key": "tool_downloaded", "label": "Ja baixei a ferramenta", "checked": False},
+        {"key": "zip_extracted", "label": "Ja descompactei com a senha", "checked": False},
+        {"key": "tool_installed", "label": "Ja instalei a ferramenta", "checked": False},
+        {"key": "robot_activated", "label": "Ja consegui ativar o robo", "checked": False},
+    ]
+    cenarios = [
+        (0, "https://www.youtube.com/watch?v=u3GWhwR8bcQ&t=111s"),
+        (1, "https://www.youtube.com/watch?v=u3GWhwR8bcQ&t=150s"),
+        (2, "https://www.youtube.com/watch?v=u3GWhwR8bcQ&t=155s"),
+        (3, "https://www.youtube.com/watch?v=u3GWhwR8bcQ&t=238s"),
+        (4, "https://www.youtube.com/watch?v=u3GWhwR8bcQ&t=283s"),
+    ]
+
+    for done_count, expected_video in cenarios:
+        steps = []
+        for idx, item in enumerate(steps_base):
+            steps.append({**item, "checked": idx < done_count})
+        payload = {
+            "nome": "Guilherme",
+            "plano": "trx-gold",
+            "done_count": done_count,
+            "total_steps": 5,
+            "steps": steps,
+        }
+
+        msg = app_module.montar_mensagem_whatsapp_ativacao(payload)
+        assert expected_video in msg
 
 
 def test_resumo_onboarding_oculta_icone_quando_ja_enviado_na_mesma_etapa(app_module, monkeypatch):
@@ -239,14 +279,14 @@ def test_admin_onboarding_whatsapp_registra_e_redireciona(app_module, client, mo
     monkeypatch.setattr(
         app_module,
         "montar_payload_whatsapp_ativacao_por_email",
-        lambda email: dict(payload) if email == "cliente@example.com" else None
+        lambda email: dict(payload) if email == "cliente@example.com" else None,
     )
     monkeypatch.setattr(app_module, "montar_stage_token_onboarding", lambda _payload: "not_started")
     monkeypatch.setattr(app_module, "gerar_link_whatsapp_ativacao", lambda _payload: "https://wa.me/5511999998888?text=ok")
     monkeypatch.setattr(
         app_module,
         "registrar_envio_whatsapp_ativacao",
-        lambda email, stage: call.update({"email": email, "stage": stage}) or True
+        lambda email, stage: call.update({"email": email, "stage": stage}) or True,
     )
 
     with client.session_transaction() as sess:

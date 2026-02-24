@@ -872,32 +872,56 @@ ONBOARDING_STEP_POSITION = {
     chave: idx + 1
     for idx, (chave, _) in enumerate(ONBOARDING_PROGRESS_STEPS)
 }
-ONBOARDING_WHATSAPP_STEP_GUIDE = {
-    "email_accessed": (
-        "1) Abra o e-mail de libera\u00e7\u00e3o do TRX PRO e confira login + senha tempor\u00e1ria.\n"
-        "2) Se n\u00e3o achar, veja em Spam/Promo\u00e7\u00f5es.\n"
-        "3) Depois disso, volte aqui que te guio no pr\u00f3ximo passo."
-    ),
-    "tool_downloaded": (
-        "1) Entre na \u00c1rea do Cliente.\n"
-        "2) Clique em download da ferramenta do seu plano.\n"
-        "3) Aguarde finalizar e me avise para seguirmos para a instala\u00e7\u00e3o."
-    ),
-    "zip_extracted": (
-        "1) Localize o arquivo .rar/.zip que voc\u00ea recebeu.\n"
-        "2) Extraia usando a senha enviada no e-mail.\n"
-        "3) Se der erro de senha, me chama aqui que resolvo com voc\u00ea."
-    ),
-    "tool_installed": (
-        "1) Abra a pasta extraida e execute o instalador.\n"
-        "2) Conclua a instala\u00e7\u00e3o com permiss\u00e3o de administrador.\n"
-        "3) Depois me confirme para fazermos a ativa\u00e7\u00e3o final."
-    ),
-    "robot_activated": (
-        "1) Abra a plataforma e carregue o TRX PRO.\n"
-        "2) Valide licen\u00e7a/plano ativo e par\u00e2metros b\u00e1sicos.\n"
-        "3) Teste no simulador e me avise para validar tudo com voc\u00ea."
-    ),
+ONBOARDING_STEP_LABEL_BY_KEY = {
+    chave: label
+    for chave, label in ONBOARDING_PROGRESS_STEPS
+}
+ONBOARDING_WHATSAPP_STEP_CONTENT = {
+    "email_accessed": {
+        "lead": "Veja este trecho para localizar o e-mail e confirmar se ele chegou na caixa correta:",
+        "video_start": 111,
+        "steps": (
+            "Abra seu e-mail e procure por \"TRX PRO | Acesso e instalacao\".",
+            "Cheque Spam e Promocoes caso ele nao esteja na caixa principal.",
+            "Depois de abrir o e-mail, volte e marque esta etapa.",
+        ),
+    },
+    "tool_downloaded": {
+        "lead": "Este ponto mostra onde clicar para fazer o download correto:",
+        "video_start": 150,
+        "steps": (
+            "Abra o e-mail de acesso e clique no link de download da ferramenta.",
+            "Salve o arquivo .zip em uma pasta facil de encontrar (Downloads, por exemplo).",
+            "Confirme o fim do download e so entao marque esta etapa.",
+        ),
+    },
+    "zip_extracted": {
+        "lead": "Aqui esta o trecho para extrair o arquivo com a senha correta:",
+        "video_start": 155,
+        "steps": (
+            "Localize o arquivo .zip baixado na etapa anterior.",
+            "Extraia o conteudo usando a senha enviada no e-mail.",
+            "Verifique a pasta extraida e marque a etapa apos validar os arquivos.",
+        ),
+    },
+    "tool_installed": {
+        "lead": "Assista o video para esta etapa, pois o modo de instalacao atual e incompativel com o fluxo antigo.",
+        "video_start": 238,
+        "steps": (
+            "Abra o video no ponto indicado e siga exatamente o passo a passo mostrado.",
+            "Nao use o procedimento antigo para evitar erro de instalacao.",
+            "Depois de concluir pelo video, volte e marque esta etapa.",
+        ),
+    },
+    "robot_activated": {
+        "lead": "Veja este trecho final para ativar o robo sem erro e concluir o checklist:",
+        "video_start": 283,
+        "steps": (
+            "Abra a plataforma ja instalada e carregue os arquivos do robo.",
+            "Confirme parametros iniciais conforme seu plano liberado.",
+            "Valide que o robo esta ativo e finalize em \"Confirmar e salvar\".",
+        ),
+    },
 }
 
 
@@ -2814,6 +2838,36 @@ def montar_payload_whatsapp_ativacao_por_email(email):
     }
 
 
+def gerar_link_video_onboarding_etapa(step_key):
+    step_norm = (step_key or "").strip().lower()
+    config = ONBOARDING_WHATSAPP_STEP_CONTENT.get(step_norm) or {}
+    try:
+        video_start = max(0, int(config.get("video_start") or 0))
+    except (TypeError, ValueError):
+        video_start = 0
+
+    video_id = (CLIENT_INSTALL_VIDEO_ID or "u3GWhwR8bcQ").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{6,20}", video_id):
+        video_id = "u3GWhwR8bcQ"
+
+    base = f"https://www.youtube.com/watch?v={video_id}"
+    if video_start > 0:
+        return f"{base}&t={video_start}s"
+    return base
+
+
+def montar_guia_texto_onboarding_etapa(step_key):
+    step_norm = (step_key or "").strip().lower()
+    config = ONBOARDING_WHATSAPP_STEP_CONTENT.get(step_norm) or {}
+    itens = list(config.get("steps") or [])
+    linhas = []
+    for idx, item in enumerate(itens, start=1):
+        texto = re.sub(r"\s+", " ", str(item or "").strip())
+        if texto:
+            linhas.append(f"{idx}) {texto}")
+    return "\n".join(linhas)
+
+
 def montar_mensagem_whatsapp_ativacao(payload):
     payload = payload or {}
     saudacao = saudacao_whatsapp_periodo()
@@ -2822,6 +2876,7 @@ def montar_mensagem_whatsapp_ativacao(payload):
     plano_id = (payload.get("plano") or "").strip().lower()
     plano_nome = PLANOS.get(plano_id, {}).get("nome", plano_id or "TRX PRO")
     stage_key, stage_label = detectar_etapa_onboarding_pendente(payload)
+    stage_key_original = stage_key
     area_cliente_url = f"{PUBLIC_BASE_URL}/login"
 
     if stage_key == "completed":
@@ -2833,29 +2888,34 @@ def montar_mensagem_whatsapp_ativacao(payload):
         )
 
     if stage_key == "not_started":
-        return (
-            f"{saudacao}, {primeiro_nome}!\n\n"
-            f"Vi que sua ativa\u00e7\u00e3o do {plano_nome} ainda n\u00e3o foi iniciada.\n"
-            "Segue o caminho r\u00e1pido para come\u00e7ar agora:\n"
-            "1) Acessar o e-mail de libera\u00e7\u00e3o\n"
-            "2) Baixar a ferramenta\n"
-            "3) Descompactar com a senha\n"
-            "4) Instalar a ferramenta\n"
-            "5) Ativar o rob\u00f4\n\n"
-            f"\u00c1rea do cliente: {area_cliente_url}\n"
-            "Se quiser, fazemos juntos por aqui em tempo real."
-        )
+        stage_key = "email_accessed"
+        stage_label = ONBOARDING_STEP_LABEL_BY_KEY.get(stage_key, "Primeira etapa")
 
     etapa_num = int(ONBOARDING_STEP_POSITION.get(stage_key) or 0)
-    instrucao = ONBOARDING_WHATSAPP_STEP_GUIDE.get(stage_key) or (
+    etapa_total = len(ONBOARDING_PROGRESS_STEPS)
+    step_content = ONBOARDING_WHATSAPP_STEP_CONTENT.get(stage_key) or {}
+    lead = (step_content.get("lead") or "").strip()
+    instrucao = montar_guia_texto_onboarding_etapa(stage_key) or (
         "Me chama aqui que te explico o passo a passo para concluir essa etapa."
     )
+    video_link = gerar_link_video_onboarding_etapa(stage_key)
     etapa_prefixo = f"etapa {etapa_num}/5" if etapa_num > 0 else "etapa atual"
+    if etapa_num > 0 and etapa_total > 0:
+        etapa_prefixo = f"etapa {etapa_num}/{etapa_total}"
+
+    intro = f"Vi que voc\u00ea parou na {etapa_prefixo}: {stage_label}."
+    if stage_key_original == "not_started":
+        intro = (
+            f"Vi que sua ativa\u00e7\u00e3o do {plano_nome} ainda n\u00e3o foi iniciada.\n"
+            f"Vamos comecar pela {etapa_prefixo}: {stage_label}."
+        )
 
     return (
         f"{saudacao}, {primeiro_nome}!\n\n"
-        f"Vi que voc\u00ea parou na {etapa_prefixo}: {stage_label}.\n\n"
+        f"{intro}\n\n"
+        f"{lead}\n\n"
         f"{instrucao}\n\n"
+        f"Video da etapa (ponto exato): {video_link}\n"
         f"\u00c1rea do cliente: {area_cliente_url}\n"
         "Se preferir, eu te acompanho agora para finalizar essa etapa."
     )
