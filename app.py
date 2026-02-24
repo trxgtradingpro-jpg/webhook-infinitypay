@@ -4453,9 +4453,9 @@ def api_cliente_email_status():
 
     if status["exists"]:
         if status["status"] == "setup_required":
-            mensagem = "Primeiro acesso detectado. Clique em Entrar para receber o codigo de 6 digitos no e-mail."
+            mensagem = "Primeiro acesso detectado. Digite a senha temporaria enviada por e-mail e clique em Entrar."
         elif status["status"] == "paid_order":
-            mensagem = "Compra aprovada encontrada. Clique em Entrar para preparar seu primeiro acesso."
+            mensagem = "Compra aprovada encontrada. No primeiro login enviaremos sua senha temporaria por e-mail."
         else:
             mensagem = "Cadastro encontrado no banco."
     else:
@@ -4609,6 +4609,8 @@ def cliente_login():
     info = info_key
     if info_key == "senha_ja_configurada":
         info = "Senha ja configurada. Entre com seu e-mail ou telefone e senha."
+    elif info_key == "use_senha_temporaria":
+        info = "Use a senha temporaria enviada por e-mail para continuar o primeiro acesso."
     login_form = (request.args.get("login_id") or request.args.get("email") or "").strip()
     remember_checked = False
 
@@ -4631,7 +4633,7 @@ def cliente_login():
             if not conta:
                 criado = False
                 if EMAIL_RE.fullmatch(email_login):
-                    criado = provisionar_conta_cliente_por_email(email_login, enviar_email_credenciais=False)
+                    criado = provisionar_conta_cliente_por_email(email_login, enviar_email_credenciais=True)
                 if criado:
                     conta = buscar_conta_cliente_por_email(email_login)
                 if not conta:
@@ -4641,27 +4643,28 @@ def cliente_login():
                         erro = "Este e-mail nao existe no banco."
 
             if not erro and conta_cliente_requer_configuracao_senha(conta):
-                try:
-                    ok_fluxo, msg_fluxo = iniciar_fluxo_codigo_primeiro_acesso(
-                        email=email_login,
-                        conta=conta,
-                        remember=remember_checked
-                    )
-                    if ok_fluxo:
-                        return redirect(f"/login/confirmar-codigo?info=codigo_enviado&email={quote(email_login, safe='')}")
-                    erro = msg_fluxo or "N\u00e3o foi poss\u00edvel iniciar o primeiro acesso."
-                except Exception as exc:
-                    print(f"[CLIENTE] Falha ao enviar c\u00f3digo de primeiro acesso para {email_login}: {exc}", flush=True)
-                    erro = "N\u00e3o foi poss\u00edvel enviar o c\u00f3digo agora. Tente novamente em instantes."
+                senha_hash = (conta.get("password_hash") or "").strip()
+                if not senha_hash:
+                    erro = "Sua conta ainda nao tem senha temporaria ativa. Use Recuperar senha."
+                elif not senha:
+                    erro = "Informe a senha temporaria enviada por e-mail."
+                elif not check_password_hash(senha_hash, senha):
+                    erro = "E-mail ou senha invalidos."
+                else:
+                    limpar_codigo_cliente(email_login)
+                    session[CLIENT_PENDING_EMAIL_KEY] = email_login
+                    session[CLIENT_PENDING_REMEMBER_KEY] = "1" if remember_checked else "0"
+                    session.pop(CLIENT_VERIFY_EMAIL_KEY, None)
+                    return redirect("/login/primeiro-acesso")
 
             if not erro and conta:
                 senha_hash = (conta.get("password_hash") or "").strip()
                 if not senha_hash:
-                    erro = "Sua conta ainda n\u00e3o tem senha ativa. Clique em Entrar para gerar o c\u00f3digo de primeiro acesso."
+                    erro = "Sua conta ainda nao tem senha ativa. Use Recuperar senha."
                 elif not senha:
                     erro = "Informe sua senha para entrar."
                 elif not check_password_hash(senha_hash, senha):
-                    erro = "E-mail ou senha inv\u00e1lidos."
+                    erro = "E-mail ou senha invalidos."
                 else:
                     return autenticar_cliente_resposta(email_login, remember=remember_checked)
 
@@ -4718,7 +4721,8 @@ def cliente_primeiro_acesso():
     if not EMAIL_RE.fullmatch(email):
         email_em_validacao = normalizar_email(session.get(CLIENT_VERIFY_EMAIL_KEY))
         if EMAIL_RE.fullmatch(email_em_validacao):
-            return redirect(f"/login/confirmar-codigo?email={quote(email_em_validacao, safe='')}")
+            session.pop(CLIENT_VERIFY_EMAIL_KEY, None)
+            return redirect(f"/login?info=use_senha_temporaria&login_id={quote(email_em_validacao, safe='')}")
         return redirect("/login")
 
     conta = buscar_conta_cliente_por_email(email)
@@ -4770,113 +4774,18 @@ def cliente_primeiro_acesso():
 
 @app.route("/login/confirmar-codigo", methods=["GET", "POST"])
 def cliente_confirmar_codigo():
-    erro = ""
-    info = ""
-
-    email_session = normalizar_email(session.get(CLIENT_VERIFY_EMAIL_KEY))
-    email_hint = normalizar_email(request.args.get("email") or request.form.get("email") or "")
-
-    if not EMAIL_RE.fullmatch(email_session) and EMAIL_RE.fullmatch(email_hint):
-        conta_hint = buscar_conta_cliente_por_email(email_hint)
-        if conta_cliente_requer_configuracao_senha(conta_hint):
-            session[CLIENT_VERIFY_EMAIL_KEY] = email_hint
-            email_session = email_hint
-
-    email = normalizar_email(session.get(CLIENT_VERIFY_EMAIL_KEY) or email_session)
-    if not EMAIL_RE.fullmatch(email):
-        return redirect("/login")
-
-    conta = buscar_conta_cliente_por_email(email)
-    if not conta:
-        limpar_sessao_cliente()
-        return redirect("/login")
-
-    if not conta_cliente_requer_configuracao_senha(conta):
-        session.pop(CLIENT_VERIFY_EMAIL_KEY, None)
-        session.pop(CLIENT_PENDING_EMAIL_KEY, None)
-        return redirect(f"/login?info=senha_ja_configurada&email={quote(email, safe='')}")
-
-    info_key = (request.args.get("info") or "").strip().lower()
-    if info_key == "codigo_enviado":
-        info = "Enviamos um c\u00f3digo de 6 d\u00edgitos para seu e-mail."
-    elif info_key == "codigo_reenviado":
-        info = "Enviamos um novo c\u00f3digo para seu e-mail."
-
-    if request.method == "POST":
-        token = (request.form.get("csrf_token") or "").strip()
-        if not validar_csrf_token(token):
-            return "Falha de valida\u00e7\u00e3o CSRF.", 403
-
-        action = (request.form.get("action") or "verify").strip().lower()
-        remember_pending = (session.get(CLIENT_PENDING_REMEMBER_KEY) or "").strip() == "1"
-
-        if action == "resend":
-            try:
-                ok_fluxo, msg_fluxo = iniciar_fluxo_codigo_primeiro_acesso(
-                    email=email,
-                    conta=conta,
-                    remember=remember_pending
-                )
-                if ok_fluxo:
-                    info = "Enviamos um novo c\u00f3digo para seu e-mail."
-                    conta = buscar_conta_cliente_por_email(email) or conta
-                else:
-                    erro = msg_fluxo or "N\u00e3o foi poss\u00edvel reenviar o c\u00f3digo agora."
-            except Exception as exc:
-                print(f"[CLIENTE] Falha ao reenviar c\u00f3digo para {email}: {exc}", flush=True)
-                erro = "N\u00e3o foi poss\u00edvel reenviar o c\u00f3digo agora. Tente novamente em instantes."
-        else:
-            codigo = re.sub(r"\D", "", request.form.get("codigo") or "")[:6]
-            tentativas_atuais = int(conta.get("verification_attempts") or 0)
-            hash_salvo = (conta.get("verification_code_hash") or "").strip()
-            expira_em = conta.get("verification_expires_at")
-
-            ttl_restante = calcular_ttl_codigo_segundos(expira_em)
-
-            if tentativas_atuais >= CLIENT_CODE_MAX_ATTEMPTS:
-                limpar_codigo_cliente(email)
-                erro = "C\u00f3digo bloqueado por excesso de tentativas. Reenvie para gerar um novo."
-            elif not hash_salvo or ttl_restante <= 0:
-                erro = "C\u00f3digo expirado. Clique em reenviar para gerar um novo."
-            elif len(codigo) != 6:
-                erro = "Digite o c\u00f3digo de 6 d\u00edgitos."
-            else:
-                hash_digitado = hash_codigo_validacao(email, codigo)
-                if not hmac.compare_digest(hash_digitado, hash_salvo):
-                    incrementar_tentativa_codigo_cliente(email)
-                    conta = buscar_conta_cliente_por_email(email) or conta
-                    tentativas_atuais = int(conta.get("verification_attempts") or 0)
-                    restantes = max(0, CLIENT_CODE_MAX_ATTEMPTS - tentativas_atuais)
-                    if restantes <= 0:
-                        limpar_codigo_cliente(email)
-                        erro = "C\u00f3digo bloqueado por excesso de tentativas. Reenvie para gerar um novo."
-                    else:
-                        erro = f"C\u00f3digo inv\u00e1lido. Restam {restantes} tentativa(s)."
-                else:
-                    limpar_codigo_cliente(email)
-                    session[CLIENT_PENDING_EMAIL_KEY] = email
-                    session.pop(CLIENT_VERIFY_EMAIL_KEY, None)
-                    return redirect("/login/primeiro-acesso")
-
-    conta = buscar_conta_cliente_por_email(email) or conta
-    tentativas = int(conta.get("verification_attempts") or 0)
-    expira_em = conta.get("verification_expires_at")
-    ttl_seconds = calcular_ttl_codigo_segundos(expira_em)
-
-    mailbox = resolver_link_caixa_email(email)
-    return render_template(
-        "client_verify_code.html",
-        csrf_token=gerar_csrf_token(),
-        email=email,
-        email_masked=mascarar_email_compacto(email),
-        erro=erro,
-        info=info,
-        ttl_seconds=ttl_seconds,
-        max_attempts=CLIENT_CODE_MAX_ATTEMPTS,
-        attempts_used=max(0, min(CLIENT_CODE_MAX_ATTEMPTS, tentativas)),
-        mailbox_url=mailbox.get("url"),
-        mailbox_label=mailbox.get("label"),
+    email = normalizar_email(
+        request.args.get("email")
+        or request.form.get("email")
+        or session.get(CLIENT_VERIFY_EMAIL_KEY)
+        or ""
     )
+    session.pop(CLIENT_VERIFY_EMAIL_KEY, None)
+    session.pop(CLIENT_PENDING_EMAIL_KEY, None)
+
+    if EMAIL_RE.fullmatch(email):
+        return redirect(f"/login?info=use_senha_temporaria&login_id={quote(email, safe='')}")
+    return redirect("/login?info=use_senha_temporaria")
 
 
 @app.route("/logout", methods=["POST"])

@@ -243,7 +243,7 @@
       <a class="recover-link" href="/login/recuperar-senha">Recuperar senha</a>
     </form>
 
-    <p class="foot">Primeiro acesso sem senha cadastrada: no botao Entrar, vamos enviar codigo de 6 digitos para seu e-mail.</p>
+    <p class="foot">Primeiro acesso: use a senha temporaria enviada por e-mail. Depois voce cria sua nova senha e entra sem codigo.</p>
     <a href="/" class="back">Voltar para a pagina inicial</a>
   </section>
 
@@ -282,15 +282,14 @@
 
         if (setupMode){
           passLabel.textContent = "Senha";
-          passInput.value = "";
-          passInput.required = false;
-          passInput.disabled = true;
-          passInput.placeholder = "Primeiro acesso detectado (senha ainda nao criada)";
+          passInput.required = true;
+          passInput.disabled = false;
+          passInput.placeholder = "Digite a senha temporaria enviada por e-mail";
         } else {
           passLabel.textContent = "Senha";
           passInput.required = true;
           passInput.disabled = false;
-          if ((passInput.placeholder || "").includes("Primeiro acesso")) {
+          if ((passInput.placeholder || "").includes("senha temporaria")) {
             passInput.placeholder = "";
           }
         }
@@ -368,7 +367,7 @@
           }
           if (data.status === "setup_required" || data.status === "paid_order" || data.requires_password_setup) {
             setPasswordMode(true);
-            setStatus("ok", data.message || "Primeiro acesso detectado. Clique em Entrar para receber o codigo.");
+            setStatus("ok", data.message || "Primeiro acesso detectado. Digite a senha temporaria do e-mail.");
             lockSubmit(false);
             return;
           }
@@ -417,7 +416,7 @@
       const form = document.querySelector('form[action="/login"]');
       if (form) {
         form.addEventListener("submit", (event) => {
-          if (!setupMode && passInput && !passInput.value.trim()) {
+          if (passInput && !passInput.value.trim()) {
             event.preventDefault();
             setStatus("err", "Informe sua senha para entrar.");
           }
