@@ -807,6 +807,17 @@ PLANOS = {
     }
 }
 
+PLANOS_PASTA_ARQUIVOS = os.path.join("Licencas", "Planos")
+PLANOS_PSF_ARQUIVOS = {
+    "trx-bronze": ("TRX BRONZE.psf",),
+    "trx-prata": ("TRX PRATA.psf",),
+    "trx-gold": ("TRX GOLD.psf",),
+    "trx-black": ("TRX BLACK.psf", "TRX BRACK.psf"),
+    "trx-teste": ("TRX TESTE.psf",),
+    "trx-gratis": ("TRX GRATIS.psf",),
+}
+PLANOS_EXPIRACAO_RE = re.compile(r"^(\d{2})-(\d{2})-(\d{4})\.txt$", re.IGNORECASE)
+
 AFFILIATE_SLUG_RE = re.compile(r"^[a-z0-9-]{2,60}$")
 AFFILIATE_COMMISSION_PERCENT = 50.0
 AFFILIATE_COMMISSION_RATE = AFFILIATE_COMMISSION_PERCENT / 100.0
@@ -1460,6 +1471,69 @@ def resolver_timezone_segura(tz_key, fallback_hours=-3):
             )
             _TZ_WARNED_KEYS.add(chave)
         return timezone(timedelta(hours=fallback_hours))
+
+
+def listar_datas_expiracao_planos():
+    if not os.path.isdir(PLANOS_PASTA_ARQUIVOS):
+        return []
+
+    datas = []
+    for nome_arquivo in os.listdir(PLANOS_PASTA_ARQUIVOS):
+        nome_arquivo = (nome_arquivo or "").strip()
+        match = PLANOS_EXPIRACAO_RE.fullmatch(nome_arquivo)
+        if not match:
+            continue
+        dia, mes, ano = [int(parte) for parte in match.groups()]
+        try:
+            datas.append(datetime(ano, mes, dia).date())
+        except ValueError:
+            continue
+
+    datas.sort()
+    return datas
+
+
+def obter_data_expiracao_planos():
+    datas = listar_datas_expiracao_planos()
+    if not datas:
+        return None
+    return datas[-1]
+
+
+def montar_expiracao_fixa_planos(reference_dt=None):
+    data_expiracao = obter_data_expiracao_planos()
+    if not data_expiracao:
+        return None
+
+    tz_admin = resolver_timezone_segura(ADMIN_TIMEZONE, fallback_hours=-3)
+    expira_em = datetime(
+        data_expiracao.year,
+        data_expiracao.month,
+        data_expiracao.day,
+        23,
+        59,
+        59,
+        tzinfo=tz_admin
+    )
+    if reference_dt is not None and getattr(reference_dt, "tzinfo", None) is None:
+        return expira_em.replace(tzinfo=None)
+    return expira_em
+
+
+def resolver_origem_arquivo_plano(plano_id):
+    plano_norm = (plano_id or "").strip().lower()
+    candidatos = PLANOS_PSF_ARQUIVOS.get(plano_norm) or ()
+    for nome_arquivo in candidatos:
+        caminho = os.path.join(PLANOS_PASTA_ARQUIVOS, nome_arquivo)
+        if os.path.isfile(caminho):
+            return caminho
+
+    plano_info = PLANOS.get(plano_norm) or {}
+    caminho_legacy = (plano_info.get("pasta") or "").strip()
+    if caminho_legacy and os.path.exists(caminho_legacy):
+        return caminho_legacy
+
+    raise FileNotFoundError(f"Arquivo de plano nao encontrado para '{plano_norm}'.")
 
 
 def obter_fernet_cliente():
@@ -2262,12 +2336,15 @@ def iniciar_recuperacao_senha_cliente(email):
 
 def montar_expiracao_pedido(order):
     criado = order.get("created_at")
-    plano = (order.get("plano") or "").strip().lower()
-    dias = int(CLIENT_PLAN_EXPIRY_DAYS.get(plano, 30))
     if not criado:
         return None
 
-    expira_em = criado + timedelta(days=max(1, dias))
+    expira_em = montar_expiracao_fixa_planos(reference_dt=criado)
+    if not expira_em:
+        plano = (order.get("plano") or "").strip().lower()
+        dias = int(CLIENT_PLAN_EXPIRY_DAYS.get(plano, 30))
+        expira_em = criado + timedelta(days=max(1, dias))
+
     agora = datetime.now(expira_em.tzinfo) if getattr(expira_em, "tzinfo", None) else datetime.now()
     ativo = expira_em >= agora
     return {
@@ -2957,7 +3034,6 @@ def montar_curva_capital_plano(order):
 
     plano_id = (order.get("plano") or "").strip().lower()
     dias_plano = int(CLIENT_PLAN_EXPIRY_DAYS.get(plano_id, 30) or 30)
-    dias_plano = max(1, min(365, dias_plano))
     limite_contratos = int(CLIENT_PLAN_CONTRACT_LIMITS.get(plano_id, 1) or 1)
     limite_contratos = max(1, min(300, limite_contratos))
     contrato_padrao = 1
@@ -2965,6 +3041,12 @@ def montar_curva_capital_plano(order):
     created_at_local = converter_data_para_timezone_admin(order.get("created_at"))
     if not created_at_local:
         return {"available": False, "message": "Data de in\u00edcio do plano n\u00e3o encontrada."}
+
+    expiracao = montar_expiracao_pedido(order)
+    expira_local = converter_data_para_timezone_admin((expiracao or {}).get("expira_em")) if expiracao else None
+    if expira_local:
+        dias_plano = (expira_local.date() - created_at_local.date()).days + 1
+    dias_plano = max(1, min(365, dias_plano))
 
     curva_csv = carregar_curva_capital_csv()
     if not curva_csv.get("has_data"):
@@ -5573,7 +5655,8 @@ def comprar():
         if not reservar_order_para_processamento(order_id):
             return redirect(f"/sucesso/{order_id}?t={gerar_token_sucesso_order(order_id)}")
         try:
-            arquivo, senha = compactar_plano(plano_info["pasta"], PASTA_SAIDA)
+            origem_plano = resolver_origem_arquivo_plano(plano_id)
+            arquivo, senha = compactar_plano(origem_plano, PASTA_SAIDA)
             enviar_email(
                 destinatario=email,
                 nome_plano=plano_info["nome"],
@@ -5757,7 +5840,8 @@ def webhook():
     arquivo = None
     processamento_concluido = False
     try:
-        arquivo, senha = compactar_plano(plano_info["pasta"], PASTA_SAIDA)
+        origem_plano = resolver_origem_arquivo_plano(plano_id)
+        arquivo, senha = compactar_plano(origem_plano, PASTA_SAIDA)
         sucesso = enviar_email_com_retry(order, plano_info, arquivo, senha)
         if not sucesso:
             raise RuntimeError("Falha ao enviar e-mail de acesso do pedido.")
