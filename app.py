@@ -237,6 +237,18 @@ WHATSAPP_AUTO_SEND = os.environ.get("WHATSAPP_AUTO_SEND", "true").strip().lower(
 WHATSAPP_GRAPH_VERSION = os.environ.get("WHATSAPP_GRAPH_VERSION", "v21.0").strip()
 WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "").strip()
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN", "").strip()
+TRX_NEW_SIGNUP_NOTIFY_TO_RAW = (os.environ.get("TRX_NEW_SIGNUP_NOTIFY_TO") or "trxtradingpro@gmail.com").strip()
+TRX_NEW_SIGNUP_NOTIFY_TO = tuple(
+    item.strip().lower()
+    for item in re.split(r"[;,]", TRX_NEW_SIGNUP_NOTIFY_TO_RAW)
+    if item.strip()
+)
+try:
+    TRX_NEW_SIGNUP_NOTIFY_DELAY_MINUTES = int(os.environ.get("TRX_NEW_SIGNUP_NOTIFY_DELAY_MINUTES", "5"))
+except (TypeError, ValueError):
+    TRX_NEW_SIGNUP_NOTIFY_DELAY_MINUTES = 5
+TRX_NEW_SIGNUP_NOTIFY_DELAY_MINUTES = max(0, TRX_NEW_SIGNUP_NOTIFY_DELAY_MINUTES)
+TRX_NEW_SIGNUP_NOTIFY_ENABLED = bool(TRX_NEW_SIGNUP_NOTIFY_TO)
 
 ADMIN_TIMEZONE = os.environ.get("ADMIN_TIMEZONE", "America/Sao_Paulo").strip()
 ONLINE_TTL_SECONDS = int(os.environ.get("ONLINE_TTL_SECONDS", "90"))
@@ -2482,6 +2494,128 @@ def enviar_email_codigo_cliente(destinatario, nome, codigo, ttl_seconds):
     </div>
     """
     enviar_email_simples(destinatario=destinatario, assunto=assunto, mensagem=mensagem, html=html)
+
+
+def _status_order_legivel(status_norm):
+    status_upper = (status_norm or "").strip().upper()
+    if status_upper == "PAGO":
+        return "Pago"
+    if status_upper == "PROCESSANDO":
+        return "Processando"
+    if status_upper == "PENDENTE":
+        return "Pendente"
+    if status_upper == "FAILED":
+        return "Falhou"
+    return status_upper or "Desconhecido"
+
+
+def montar_email_alerta_novo_cadastro(order):
+    pedido = dict(order or {})
+    order_id = (pedido.get("order_id") or "").strip()
+    nome = normalizar_nome(pedido.get("nome") or "") or "Cliente"
+    email = normalizar_email(pedido.get("email") or "")
+    telefone = normalizar_telefone(pedido.get("telefone") or "")
+    plano_id = (pedido.get("plano") or "").strip().lower()
+    plano_nome = (PLANOS.get(plano_id) or {}).get("nome") or plano_id or "-"
+    status_norm = (pedido.get("status") or "").strip().upper() or "PENDENTE"
+    status_legivel = _status_order_legivel(status_norm)
+    criado_fmt = formatar_data_hora_br(pedido.get("created_at")) if pedido.get("created_at") else "-"
+    checkout_slug = (pedido.get("checkout_slug") or "").strip() or "-"
+    affiliate_slug = (pedido.get("affiliate_slug") or "").strip() or "-"
+    valor_centavos = int((PLANOS.get(plano_id) or {}).get("preco") or 0)
+    valor_fmt = formatar_centavos_brl(valor_centavos)
+
+    assunto = f"[TRX] Novo cadastro - {nome} - {plano_nome} - {status_norm}"
+    mensagem = (
+        "Novo cadastro recebido no site TRX PRO (alerta com 5 minutos).\n\n"
+        f"Nome: {nome}\n"
+        f"E-mail: {email or '-'}\n"
+        f"Telefone: {telefone or '-'}\n"
+        f"Order ID: {order_id or '-'}\n"
+        f"Plano: {plano_nome} ({plano_id or '-'})\n"
+        f"Valor do plano: {valor_fmt}\n"
+        f"Status atual: {status_legivel} ({status_norm})\n"
+        f"Criado em: {criado_fmt}\n"
+        f"Checkout slug: {checkout_slug}\n"
+        f"Afiliado: {affiliate_slug}\n"
+    )
+    banner_html = montar_banner_email_html()
+    html = f"""
+    <div style="font-family:Arial,Helvetica,sans-serif;background:#050912;padding:20px;">
+      <div style="max-width:620px;margin:0 auto;background:#0d1629;border:1px solid #203354;border-radius:14px;overflow:hidden;">
+        {banner_html}
+        <div style="padding:18px 20px;background:linear-gradient(90deg,#0ea5e9,#22c55e);color:#05131d;font-weight:800;font-size:18px;">
+          Novo cadastro no site TRX PRO
+        </div>
+        <div style="padding:20px;color:#eaf2ff;line-height:1.55;">
+          <p style="margin:0 0 12px;"><strong>Nome:</strong> {nome}</p>
+          <p style="margin:0 0 12px;"><strong>E-mail:</strong> {email or '-'}</p>
+          <p style="margin:0 0 12px;"><strong>Telefone:</strong> {telefone or '-'}</p>
+          <p style="margin:0 0 12px;"><strong>Order ID:</strong> {order_id or '-'}</p>
+          <p style="margin:0 0 12px;"><strong>Plano:</strong> {plano_nome} ({plano_id or '-'})</p>
+          <p style="margin:0 0 12px;"><strong>Valor do plano:</strong> {valor_fmt}</p>
+          <p style="margin:0 0 12px;"><strong>Status atual:</strong> {status_legivel} ({status_norm})</p>
+          <p style="margin:0 0 12px;"><strong>Criado em:</strong> {criado_fmt}</p>
+          <p style="margin:0 0 12px;"><strong>Checkout slug:</strong> {checkout_slug}</p>
+          <p style="margin:0;"><strong>Afiliado:</strong> {affiliate_slug}</p>
+        </div>
+      </div>
+    </div>
+    """
+    return assunto, mensagem, html
+
+
+def enviar_alerta_email_novo_cadastro(order_id):
+    order_id_norm = (order_id or "").strip()
+    if not order_id_norm or not TRX_NEW_SIGNUP_NOTIFY_ENABLED:
+        return False
+
+    pedido = buscar_order_por_id(order_id_norm)
+    if not pedido:
+        print(f"[CADASTRO ALERT] Pedido {order_id_norm} nao encontrado para envio de alerta.", flush=True)
+        return False
+
+    assunto, mensagem, html = montar_email_alerta_novo_cadastro(pedido)
+    enviados = 0
+    for destino in TRX_NEW_SIGNUP_NOTIFY_TO:
+        try:
+            enviar_email_simples(destinatario=destino, assunto=assunto, mensagem=mensagem, html=html)
+            enviados += 1
+        except Exception as exc:
+            print(f"[CADASTRO ALERT] Falha ao enviar alerta para {destino} ({order_id_norm}): {exc}", flush=True)
+
+    return enviados > 0
+
+
+def agendar_alerta_email_novo_cadastro(order_id, delay_minutes=None):
+    order_id_norm = (order_id or "").strip()
+    if not order_id_norm or not TRX_NEW_SIGNUP_NOTIFY_ENABLED:
+        return False
+
+    if delay_minutes is None:
+        minutos = TRX_NEW_SIGNUP_NOTIFY_DELAY_MINUTES
+    else:
+        try:
+            minutos = int(delay_minutes or 0)
+        except (TypeError, ValueError):
+            minutos = TRX_NEW_SIGNUP_NOTIFY_DELAY_MINUTES
+    minutos = max(0, minutos)
+    delay_seconds = minutos * 60
+
+    def _job():
+        try:
+            ok = enviar_alerta_email_novo_cadastro(order_id_norm)
+            if ok:
+                print(f"[CADASTRO ALERT] E-mail de cadastro enviado para {order_id_norm}.", flush=True)
+            else:
+                print(f"[CADASTRO ALERT] Sem destinatario/resultado para {order_id_norm}.", flush=True)
+        except Exception as exc:
+            print(f"[CADASTRO ALERT] Falha no alerta do cadastro {order_id_norm}: {exc}", flush=True)
+
+    timer = threading.Timer(delay_seconds, _job)
+    timer.daemon = True
+    timer.start()
+    return True
 
 
 def garantir_conta_cliente_para_order(order, enviar_email_credenciais=False):
@@ -6330,6 +6464,10 @@ def comprar():
         affiliate_email=(afiliado_atribuido or {}).get("email") or None,
         affiliate_telefone=(afiliado_atribuido or {}).get("telefone") or None,
     )
+    try:
+        agendar_alerta_email_novo_cadastro(order_id, delay_minutes=TRX_NEW_SIGNUP_NOTIFY_DELAY_MINUTES)
+    except Exception as exc:
+        print(f"[CADASTRO ALERT] Falha ao agendar alerta do cadastro {order_id}: {exc}", flush=True)
     registrar_evento_funil(
         stage=FUNNEL_STAGE_CHECKOUT_SUBMIT,
         event_name="checkout_submit",
