@@ -1,19 +1,14 @@
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 import tarfile
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
 from database import exportar_snapshot_publico
-
-BACKUP_MAGIC = b"TRXBK1"
-PBKDF2_ITERATIONS = 390000
 
 EXCLUDED_DIRS = {
     ".git",
@@ -34,22 +29,67 @@ EXCLUDED_FILES = {
 }
 
 
-def _derive_key(password, salt):
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=PBKDF2_ITERATIONS,
+def _resolver_binario_rar():
+    override = (os.environ.get("BACKUP_RAR_BINARY") or "").strip()
+    if override:
+        if os.path.isfile(override):
+            return override
+        located = shutil.which(override)
+        if located:
+            return located
+        raise RuntimeError(f"BACKUP_RAR_BINARY invalido: {override}")
+
+    for candidate in ("rar", "winrar"):
+        located = shutil.which(candidate)
+        if located:
+            return located
+
+    if os.name == "nt":
+        windows_candidates = [
+            r"C:\Program Files\WinRAR\Rar.exe",
+            r"C:\Program Files\WinRAR\WinRAR.exe",
+            r"C:\Program Files (x86)\WinRAR\Rar.exe",
+            r"C:\Program Files (x86)\WinRAR\WinRAR.exe",
+        ]
+        for candidate in windows_candidates:
+            if os.path.isfile(candidate):
+                return candidate
+
+    return None
+
+
+def _compactar_em_rar(arquivo_origem, arquivo_destino_rar, senha):
+    rar_binary = _resolver_binario_rar()
+    if not rar_binary:
+        raise RuntimeError(
+            "Binario RAR nao encontrado. Instale o rar/WinRAR no servidor "
+            "ou configure BACKUP_RAR_BINARY com o caminho completo."
+        )
+
+    cmd = [
+        rar_binary,
+        "a",
+        "-y",
+        "-idq",
+        "-ep1",
+        "-ma5",
+        "-m5",
+        f"-hp{senha}",
+        str(arquivo_destino_rar),
+        str(arquivo_origem),
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
     )
-    return kdf.derive(password.encode("utf-8"))
-
-
-def _encrypt_bytes(plaintext, password):
-    salt = os.urandom(16)
-    nonce = os.urandom(12)
-    key = _derive_key(password=password, salt=salt)
-    ciphertext = AESGCM(key).encrypt(nonce=nonce, data=plaintext, associated_data=None)
-    return BACKUP_MAGIC + salt + nonce + ciphertext
+    if result.returncode != 0 or not os.path.exists(arquivo_destino_rar):
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        detalhe = stderr or stdout or f"codigo={result.returncode}"
+        raise RuntimeError(f"Falha ao gerar RAR protegido: {detalhe}")
 
 
 def _iter_project_files(project_root):
@@ -87,39 +127,39 @@ def _build_plain_backup_tar(project_root, tar_output_path):
 
 
 def criar_backup_criptografado(project_root, output_dir, password):
-    if not password or len(password.strip()) < 10:
-        raise ValueError("Senha de backup ausente ou muito curta (minimo 10 caracteres).")
+    if not password or not password.strip():
+        raise ValueError("Senha de backup ausente.")
 
     root = Path(project_root).resolve()
     out_dir = Path(output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     backup_base_name = f"trxpro-backup-{stamp}"
+    rar_path = out_dir / f"{backup_base_name}.rar"
 
     with tempfile.TemporaryDirectory(prefix="trxbkp-") as tmp_dir:
         tar_path = Path(tmp_dir) / f"{backup_base_name}.tar.gz"
         _build_plain_backup_tar(project_root=root, tar_output_path=tar_path)
+        _compactar_em_rar(
+            arquivo_origem=tar_path,
+            arquivo_destino_rar=rar_path,
+            senha=password.strip(),
+        )
 
-        with open(tar_path, "rb") as f:
-            plain_data = f.read()
-
-    encrypted_data = _encrypt_bytes(plaintext=plain_data, password=password)
-    encrypted_path = out_dir / f"{backup_base_name}.enc"
-
-    with open(encrypted_path, "wb") as f:
-        f.write(encrypted_data)
     try:
-        os.chmod(encrypted_path, 0o600)
+        os.chmod(rar_path, 0o600)
     except Exception:
         pass
 
-    sha256_hash = hashlib.sha256(encrypted_data).hexdigest()
+    with open(rar_path, "rb") as f:
+        rar_bytes = f.read()
+    sha256_hash = hashlib.sha256(rar_bytes).hexdigest()
 
     return {
-        "path": str(encrypted_path),
-        "filename": encrypted_path.name,
-        "size_bytes": encrypted_path.stat().st_size,
+        "path": str(rar_path),
+        "filename": rar_path.name,
+        "size_bytes": rar_path.stat().st_size,
         "sha256": sha256_hash,
         "created_at_utc": stamp,
     }
@@ -134,15 +174,17 @@ def remover_backups_antigos(output_dir, keep_days=15):
     if not out_dir.exists():
         return removed
 
-    cutoff = datetime.utcnow() - timedelta(days=keep_days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
 
-    for file_path in out_dir.glob("trxpro-backup-*.enc"):
-        try:
-            mtime = datetime.utcfromtimestamp(file_path.stat().st_mtime)
-            if mtime < cutoff:
-                file_path.unlink(missing_ok=True)
-                removed.append(str(file_path))
-        except Exception:
-            continue
+    patterns = ("trxpro-backup-*.rar", "trxpro-backup-*.enc")
+    for pattern in patterns:
+        for file_path in out_dir.glob(pattern):
+            try:
+                mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
+                if mtime < cutoff:
+                    file_path.unlink(missing_ok=True)
+                    removed.append(str(file_path))
+            except Exception:
+                continue
 
     return removed

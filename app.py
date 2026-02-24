@@ -236,9 +236,9 @@ BACKUP_HOUR = int(os.environ.get("BACKUP_HOUR", "23"))
 BACKUP_MINUTE = int(os.environ.get("BACKUP_MINUTE", "59"))
 BACKUP_OUTPUT_DIR = os.environ.get("BACKUP_OUTPUT_DIR", "backups").strip() or "backups"
 BACKUP_EMAIL_TO = os.environ.get("BACKUP_EMAIL_TO", "trxtradingpro@gmail.com").strip()
-BACKUP_ENCRYPTION_PASSWORD = (os.environ.get("BACKUP_ENCRYPTION_PASSWORD") or ADMIN_SECRET).strip()
-if not (os.environ.get("BACKUP_ENCRYPTION_PASSWORD") or "").strip():
-    print("[SECURITY] BACKUP_ENCRYPTION_PASSWORD nao definido; usando ADMIN_SECRET como fallback.", flush=True)
+BACKUP_ARCHIVE_PASSWORD = (ADMIN_PASSWORD or "").strip()
+if not BACKUP_ARCHIVE_PASSWORD:
+    print("[SECURITY] ADMIN_PASSWORD nao definido; backup .rar por e-mail ficara indisponivel.", flush=True)
 BACKUP_RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS", "15"))
 BACKUP_WORKER_ENABLED = (os.environ.get("BACKUP_WORKER_ENABLED", "true").strip().lower() == "true")
 _backup_lock = threading.Lock()
@@ -2414,8 +2414,8 @@ def executar_backup_criptografado(trigger_type="auto"):
     if not BACKUP_ENABLED:
         return False, "Backup desativado por configura\u00e7\u00e3o."
 
-    if not BACKUP_ENCRYPTION_PASSWORD:
-        return False, "Senha de criptografia do backup n\u00e3o configurada."
+    if not BACKUP_ARCHIVE_PASSWORD:
+        return False, "ADMIN_PASSWORD nao configurado para proteger o arquivo .rar."
 
     if not BACKUP_EMAIL_TO:
         return False, "E-mail de destino do backup n\u00e3o configurado."
@@ -2450,15 +2450,16 @@ def executar_backup_criptografado(trigger_type="auto"):
             info = criar_backup_criptografado(
                 project_root=os.getcwd(),
                 output_dir=BACKUP_OUTPUT_DIR,
-                password=BACKUP_ENCRYPTION_PASSWORD,
+                password=BACKUP_ARCHIVE_PASSWORD,
             )
 
             assunto = f"Backup diario TRX PRO ({info['created_at_utc']})"
             mensagem = (
-                "Backup criptografado gerado e enviado com sucesso.\n\n"
+                "Backup gerado em .rar protegido por senha e enviado com sucesso.\n\n"
                 f"Arquivo: {info['filename']}\n"
                 f"Tamanho: {info['size_bytes']} bytes\n"
                 f"SHA256: {info['sha256']}\n"
+                "Senha do .rar: ADMIN_PASSWORD\n"
                 f"Trigger: {trigger_type}\n"
             )
             enviar_email_com_anexo(
@@ -2480,11 +2481,11 @@ def executar_backup_criptografado(trigger_type="auto"):
                 filename=info["filename"],
                 size_bytes=info["size_bytes"],
                 sha256=info["sha256"],
-                message="Backup enviado por e-mail com sucesso.",
+                message="Backup .rar protegido enviado por e-mail com sucesso.",
                 started_at=inicio,
                 finished_at=fim,
             )
-            return True, "Backup enviado com sucesso."
+            return True, "Backup .rar protegido enviado com sucesso."
         except Exception as exc:
             fim = agora_utc()
             _registrar_backup_execucao_seguro(
