@@ -75,6 +75,10 @@
       color: var(--muted);
       font-size: 12px;
     }
+    .mono-cell {
+      font-family: "Space Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+    }
   </style>
 </head>
 <body>
@@ -262,6 +266,77 @@
 
     <section class="analytics-grid-2">
       <article class="panel">
+        <h3 class="mini-title">Engajamento por pagina</h3>
+        <p class="mini-sub">Tempo medio, atividade e taxa de saida por pagina.</p>
+        <div class="row">
+          <div class="card"><div class="k">Visitas rastreadas</div><div class="v" id="engVisits">0</div></div>
+          <div class="card"><div class="k">Paginas mapeadas</div><div class="v" id="engPages">0</div></div>
+          <div class="card"><div class="k">Tempo medio/pagina</div><div class="v" id="engAvgTime">0s</div></div>
+          <div class="card"><div class="k">Tempo ativo medio</div><div class="v" id="engAvgActive">0s</div></div>
+          <div class="card"><div class="k">Saidas do site</div><div class="v" id="engExits">0</div><div class="kpi-note" id="engExitRate">Taxa: 0%</div></div>
+          <div class="card"><div class="k">Profundidade sessao</div><div class="v" id="engDepth">0,00</div><div class="kpi-note">Paginas por sessao</div></div>
+        </div>
+        <div class="table-wrap">
+          <table class="analytics-table">
+            <thead>
+              <tr>
+                <th>Pagina</th>
+                <th>Visitas</th>
+                <th>Tempo medio</th>
+                <th>Tempo ativo</th>
+                <th>Leitura</th>
+                <th>Scroll medio</th>
+                <th>Taxa saida</th>
+              </tr>
+            </thead>
+            <tbody id="pageTimeTable">
+              <tr><td colspan="7" class="muted">Sem dados.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h3 class="mini-title">Saidas e leitura da index</h3>
+        <p class="mini-sub">Onde os usuarios saem do site e quanto leem na pagina inicial.</p>
+        <div class="row">
+          <div class="card"><div class="k">Index visitas</div><div class="v" id="indexVisits">0</div></div>
+          <div class="card"><div class="k">Index tempo medio</div><div class="v" id="indexAvgTime">0s</div></div>
+          <div class="card"><div class="k">Index leitura media</div><div class="v" id="indexAvgRead">0s</div></div>
+          <div class="card"><div class="k">Leitura engajada</div><div class="v" id="indexReadRate">0%</div><div class="kpi-note" id="indexExitRate">Saida index: 0%</div></div>
+        </div>
+        <div class="table-wrap">
+          <table class="analytics-table">
+            <thead>
+              <tr>
+                <th>Pagina de saida</th>
+                <th>Saidas</th>
+                <th>Taxa</th>
+              </tr>
+            </thead>
+            <tbody id="exitPagesTable">
+              <tr><td colspan="3" class="muted">Sem dados.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap" style="margin-top:8px;">
+          <table class="analytics-table">
+            <thead>
+              <tr>
+                <th>Tipo de saida</th>
+                <th>Qtd</th>
+              </tr>
+            </thead>
+            <tbody id="exitTypesTable">
+              <tr><td colspan="2" class="muted">Sem dados.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section class="analytics-grid-2">
+      <article class="panel">
         <h3 class="mini-title">Top CTAs clicados</h3>
         <p class="mini-sub">IDs de CTA com maior volume de clique.</p>
         <div class="table-wrap">
@@ -318,6 +393,17 @@
     function fmtPct(value) {
       const n = Number(value || 0);
       return n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
+    }
+
+    function fmtDuration(valueSec) {
+      const sec = Math.max(0, Math.round(Number(valueSec || 0)));
+      if (sec < 60) return `${sec}s`;
+      const min = Math.floor(sec / 60);
+      const remSec = sec % 60;
+      if (min < 60) return `${min}m ${String(remSec).padStart(2, "0")}s`;
+      const hour = Math.floor(min / 60);
+      const remMin = min % 60;
+      return `${hour}h ${String(remMin).padStart(2, "0")}m`;
     }
 
     function destroyChart(key) {
@@ -596,6 +682,22 @@
       document.getElementById("upgradeLeads").textContent = fmtInt(upgrades.total_leads || 0);
       document.getElementById("upgradeEmails").textContent = fmtInt(upgrades.unique_emails || 0);
 
+      const engagement = summary.engagement || {};
+      const engagementIndex = engagement.index || {};
+      document.getElementById("engVisits").textContent = fmtInt(engagement.total_visits || 0);
+      document.getElementById("engPages").textContent = fmtInt(engagement.tracked_pages || 0);
+      document.getElementById("engAvgTime").textContent = fmtDuration(engagement.avg_duration_seconds || 0);
+      document.getElementById("engAvgActive").textContent = fmtDuration(engagement.avg_active_seconds || 0);
+      document.getElementById("engExits").textContent = fmtInt(engagement.total_exits || 0);
+      document.getElementById("engExitRate").textContent = "Taxa: " + fmtPct(engagement.exit_rate_percent || 0);
+      document.getElementById("engDepth").textContent = Number(engagement.avg_pages_per_session || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      document.getElementById("indexVisits").textContent = fmtInt(engagementIndex.visits || 0);
+      document.getElementById("indexAvgTime").textContent = fmtDuration(engagementIndex.avg_time_seconds || 0);
+      document.getElementById("indexAvgRead").textContent = fmtDuration(engagementIndex.avg_read_seconds || 0);
+      document.getElementById("indexReadRate").textContent = fmtPct(engagementIndex.read_engaged_rate_percent || 0);
+      document.getElementById("indexExitRate").textContent = "Saida index: " + fmtPct(engagementIndex.exit_rate_percent || 0);
+
       setRows(
         "upgradeTargetsTable",
         (upgrades.top_target_plans || []).map((r) => [r.name, fmtInt(r.count)]),
@@ -619,6 +721,33 @@
       setRows(
         "referrerTable",
         (summary?.channels?.top_referrers || []).map((r) => [r.name, fmtInt(r.count)]),
+        2
+      );
+      setRows(
+        "pageTimeTable",
+        (engagement.pages || []).slice(0, 25).map((r) => [
+          `<span class="mono-cell">${r.path}</span>`,
+          fmtInt(r.visits || 0),
+          fmtDuration(r.avg_duration_seconds || 0),
+          fmtDuration(r.avg_active_seconds || 0),
+          fmtDuration(r.avg_read_seconds || 0),
+          fmtPct(r.avg_scroll_percent || 0),
+          fmtPct(r.exit_rate_percent || 0)
+        ]),
+        7
+      );
+      setRows(
+        "exitPagesTable",
+        (engagement.top_exit_pages || []).slice(0, 20).map((r) => [
+          `<span class="mono-cell">${r.path}</span>`,
+          fmtInt(r.exit_count || 0),
+          fmtPct(r.exit_rate_percent || 0)
+        ]),
+        3
+      );
+      setRows(
+        "exitTypesTable",
+        (engagement.exit_types || []).map((r) => [r.name, fmtInt(r.count)]),
         2
       );
 

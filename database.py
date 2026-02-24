@@ -126,6 +126,43 @@ def init_db():
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_funnel_dedupe_key ON analytics_funnel_events(dedupe_key)")
 
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS analytics_page_engagement (
+            id BIGSERIAL PRIMARY KEY,
+            visit_id TEXT UNIQUE NOT NULL,
+            visitor_key TEXT,
+            session_key TEXT,
+            user_key TEXT,
+            path TEXT NOT NULL,
+            page_title TEXT,
+            source_path TEXT,
+            referrer TEXT,
+            utm_source TEXT,
+            utm_medium TEXT,
+            utm_campaign TEXT,
+            utm_content TEXT,
+            utm_term TEXT,
+            duration_seconds INTEGER NOT NULL DEFAULT 0,
+            active_seconds INTEGER NOT NULL DEFAULT 0,
+            read_seconds INTEGER NOT NULL DEFAULT 0,
+            max_scroll_percent INTEGER NOT NULL DEFAULT 0,
+            is_index BOOLEAN NOT NULL DEFAULT FALSE,
+            exit_recorded BOOLEAN NOT NULL DEFAULT FALSE,
+            exit_type TEXT,
+            first_seen_at TIMESTAMP DEFAULT NOW(),
+            last_seen_at TIMESTAMP DEFAULT NOW(),
+            event_count INTEGER NOT NULL DEFAULT 1,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_analytics_page_engagement_first_seen_at ON analytics_page_engagement(first_seen_at)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_analytics_page_engagement_path ON analytics_page_engagement(path)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_analytics_page_engagement_user_key ON analytics_page_engagement(user_key)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_analytics_page_engagement_visitor_key ON analytics_page_engagement(visitor_key)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_analytics_page_engagement_session_key ON analytics_page_engagement(session_key)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_analytics_page_engagement_exit_recorded ON analytics_page_engagement(exit_recorded)")
+
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS quiz_submissions (
             id BIGSERIAL PRIMARY KEY,
             submission_id TEXT UNIQUE NOT NULL,
@@ -1855,6 +1892,236 @@ def listar_eventos_funil_analytics(start_date=None, end_date=None, stage=None):
             "dedupe_key": r[16],
             "meta": r[17] if isinstance(r[17], dict) else {},
             "created_at": r[18],
+        })
+    return eventos
+
+
+def registrar_evento_engajamento_pagina_analytics(
+    visit_id,
+    path,
+    page_title=None,
+    visitor_key=None,
+    session_key=None,
+    user_key=None,
+    source_path=None,
+    referrer=None,
+    utm_source=None,
+    utm_medium=None,
+    utm_campaign=None,
+    utm_content=None,
+    utm_term=None,
+    duration_seconds=0,
+    active_seconds=0,
+    read_seconds=0,
+    max_scroll_percent=0,
+    is_index=False,
+    is_exit=False,
+    exit_type=None,
+    seen_at=None
+):
+    visit_norm = (visit_id or "").strip()[:120]
+    path_norm = (path or "").strip()[:220]
+    if not visit_norm or not path_norm:
+        return False
+
+    try:
+        duration_val = max(0, min(int(duration_seconds or 0), 86400))
+    except (TypeError, ValueError):
+        duration_val = 0
+    try:
+        active_val = max(0, min(int(active_seconds or 0), 86400))
+    except (TypeError, ValueError):
+        active_val = 0
+    try:
+        read_val = max(0, min(int(read_seconds or 0), 86400))
+    except (TypeError, ValueError):
+        read_val = 0
+    try:
+        scroll_val = max(0, min(int(max_scroll_percent or 0), 100))
+    except (TypeError, ValueError):
+        scroll_val = 0
+
+    exit_norm = (exit_type or "").strip().lower()[:40] or None
+    if exit_norm and exit_norm not in {"internal", "outbound", "close", "reload", "unknown"}:
+        exit_norm = "unknown"
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO analytics_page_engagement (
+            visit_id,
+            visitor_key,
+            session_key,
+            user_key,
+            path,
+            page_title,
+            source_path,
+            referrer,
+            utm_source,
+            utm_medium,
+            utm_campaign,
+            utm_content,
+            utm_term,
+            duration_seconds,
+            active_seconds,
+            read_seconds,
+            max_scroll_percent,
+            is_index,
+            exit_recorded,
+            exit_type,
+            first_seen_at,
+            last_seen_at,
+            event_count,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            COALESCE(%s, NOW()), COALESCE(%s, NOW()), 1, NOW(), NOW()
+        )
+        ON CONFLICT (visit_id)
+        DO UPDATE SET
+            visitor_key = COALESCE(NULLIF(EXCLUDED.visitor_key, ''), analytics_page_engagement.visitor_key),
+            session_key = COALESCE(NULLIF(EXCLUDED.session_key, ''), analytics_page_engagement.session_key),
+            user_key = COALESCE(NULLIF(EXCLUDED.user_key, ''), analytics_page_engagement.user_key),
+            path = COALESCE(NULLIF(EXCLUDED.path, ''), analytics_page_engagement.path),
+            page_title = COALESCE(NULLIF(EXCLUDED.page_title, ''), analytics_page_engagement.page_title),
+            source_path = COALESCE(NULLIF(EXCLUDED.source_path, ''), analytics_page_engagement.source_path),
+            referrer = COALESCE(NULLIF(EXCLUDED.referrer, ''), analytics_page_engagement.referrer),
+            utm_source = COALESCE(NULLIF(EXCLUDED.utm_source, ''), analytics_page_engagement.utm_source),
+            utm_medium = COALESCE(NULLIF(EXCLUDED.utm_medium, ''), analytics_page_engagement.utm_medium),
+            utm_campaign = COALESCE(NULLIF(EXCLUDED.utm_campaign, ''), analytics_page_engagement.utm_campaign),
+            utm_content = COALESCE(NULLIF(EXCLUDED.utm_content, ''), analytics_page_engagement.utm_content),
+            utm_term = COALESCE(NULLIF(EXCLUDED.utm_term, ''), analytics_page_engagement.utm_term),
+            duration_seconds = GREATEST(analytics_page_engagement.duration_seconds, EXCLUDED.duration_seconds),
+            active_seconds = GREATEST(analytics_page_engagement.active_seconds, EXCLUDED.active_seconds),
+            read_seconds = GREATEST(analytics_page_engagement.read_seconds, EXCLUDED.read_seconds),
+            max_scroll_percent = GREATEST(analytics_page_engagement.max_scroll_percent, EXCLUDED.max_scroll_percent),
+            is_index = (analytics_page_engagement.is_index OR EXCLUDED.is_index),
+            exit_recorded = (analytics_page_engagement.exit_recorded OR EXCLUDED.exit_recorded),
+            exit_type = CASE
+                WHEN EXCLUDED.exit_recorded = TRUE
+                    THEN COALESCE(NULLIF(EXCLUDED.exit_type, ''), analytics_page_engagement.exit_type)
+                ELSE analytics_page_engagement.exit_type
+            END,
+            first_seen_at = LEAST(analytics_page_engagement.first_seen_at, COALESCE(EXCLUDED.first_seen_at, analytics_page_engagement.first_seen_at)),
+            last_seen_at = GREATEST(analytics_page_engagement.last_seen_at, COALESCE(EXCLUDED.last_seen_at, analytics_page_engagement.last_seen_at)),
+            event_count = analytics_page_engagement.event_count + 1,
+            updated_at = NOW()
+    """, (
+        visit_norm,
+        (visitor_key or "").strip()[:120] or None,
+        (session_key or "").strip()[:120] or None,
+        (user_key or "").strip().lower()[:160] or None,
+        path_norm,
+        (page_title or "").strip()[:200] or None,
+        (source_path or "").strip()[:220] or None,
+        (referrer or "").strip()[:320] or None,
+        (utm_source or "").strip()[:120] or None,
+        (utm_medium or "").strip()[:120] or None,
+        (utm_campaign or "").strip()[:120] or None,
+        (utm_content or "").strip()[:120] or None,
+        (utm_term or "").strip()[:120] or None,
+        duration_val,
+        active_val,
+        read_val,
+        scroll_val,
+        bool(is_index),
+        bool(is_exit),
+        exit_norm,
+        seen_at,
+        seen_at,
+    ))
+
+    inserido = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    conn.close()
+    return inserido
+
+
+def listar_eventos_engajamento_paginas_analytics(start_date=None, end_date=None, path=None):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    sql = """
+        SELECT
+            visit_id,
+            visitor_key,
+            session_key,
+            user_key,
+            path,
+            page_title,
+            source_path,
+            referrer,
+            utm_source,
+            utm_medium,
+            utm_campaign,
+            utm_content,
+            utm_term,
+            duration_seconds,
+            active_seconds,
+            read_seconds,
+            max_scroll_percent,
+            is_index,
+            exit_recorded,
+            exit_type,
+            first_seen_at,
+            last_seen_at,
+            event_count,
+            created_at,
+            updated_at
+        FROM analytics_page_engagement
+        WHERE 1=1
+    """
+    params = []
+
+    if start_date is not None:
+        sql += " AND first_seen_at >= %s"
+        params.append(start_date)
+
+    if end_date is not None:
+        sql += " AND first_seen_at < %s"
+        params.append(end_date)
+
+    if path:
+        sql += " AND path = %s"
+        params.append((path or "").strip())
+
+    sql += " ORDER BY first_seen_at ASC"
+    cur.execute(sql, tuple(params))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    eventos = []
+    for r in rows:
+        eventos.append({
+            "visit_id": r[0],
+            "visitor_key": r[1],
+            "session_key": r[2],
+            "user_key": r[3],
+            "path": r[4],
+            "page_title": r[5],
+            "source_path": r[6],
+            "referrer": r[7],
+            "utm_source": r[8],
+            "utm_medium": r[9],
+            "utm_campaign": r[10],
+            "utm_content": r[11],
+            "utm_term": r[12],
+            "duration_seconds": int(r[13] or 0),
+            "active_seconds": int(r[14] or 0),
+            "read_seconds": int(r[15] or 0),
+            "max_scroll_percent": int(r[16] or 0),
+            "is_index": bool(r[17]),
+            "exit_recorded": bool(r[18]),
+            "exit_type": r[19],
+            "first_seen_at": r[20],
+            "last_seen_at": r[21],
+            "event_count": int(r[22] or 0),
+            "created_at": r[23],
+            "updated_at": r[24],
         })
     return eventos
 

@@ -58,9 +58,11 @@ from database import (
     excluir_duplicados_gratis_mesmo_dia,
     registrar_evento_compra_analytics,
     registrar_evento_funil_analytics,
+    registrar_evento_engajamento_pagina_analytics,
     buscar_user_plan_stats,
     listar_eventos_analytics,
     listar_eventos_funil_analytics,
+    listar_eventos_engajamento_paginas_analytics,
     listar_client_upgrade_leads,
     buscar_primeiro_evento_funil_usuario,
     backfill_analytics_from_orders,
@@ -3734,6 +3736,189 @@ def _analytics_para_lista_series(d):
     return [{"date": k, "value": int(d[k])} for k in sorted((d or {}).keys())]
 
 
+def _analytics_normalizar_path(path):
+    texto = (path or "").strip()
+    if not texto:
+        return "/"
+    try:
+        parsed = urlparse(texto)
+    except Exception:
+        parsed = None
+    if parsed and (parsed.scheme or parsed.netloc):
+        texto = (parsed.path or "/").strip()
+    if not texto:
+        texto = "/"
+    if not texto.startswith("/"):
+        texto = f"/{texto}"
+    texto = re.sub(r"[^A-Za-z0-9/_\-.~]", "_", texto)
+    if not texto:
+        texto = "/"
+    return texto[:220]
+
+
+def _analytics_media_inteira(total, quantidade):
+    qtd = int(quantidade or 0)
+    if qtd <= 0:
+        return 0
+    return int(round(float(total or 0) / qtd))
+
+
+def montar_analise_engajamento_paginas(eventos):
+    rows = list(eventos or [])
+    base = {
+        "total_visits": 0,
+        "tracked_pages": 0,
+        "avg_duration_seconds": 0,
+        "avg_active_seconds": 0,
+        "avg_read_seconds": 0,
+        "avg_pages_per_session": 0.0,
+        "total_exits": 0,
+        "exit_rate_percent": 0.0,
+        "pages": [],
+        "top_exit_pages": [],
+        "exit_types": [],
+        "index": {
+            "visits": 0,
+            "avg_time_seconds": 0,
+            "avg_active_seconds": 0,
+            "avg_read_seconds": 0,
+            "avg_scroll_percent": 0,
+            "read_engaged_visits": 0,
+            "read_engaged_rate_percent": 0.0,
+            "exit_count": 0,
+            "exit_rate_percent": 0.0,
+        },
+    }
+    if not rows:
+        return base
+
+    page_stats = {}
+    exit_type_counts = defaultdict(int)
+    sessions_paths = defaultdict(set)
+
+    total_duration = 0
+    total_active = 0
+    total_read = 0
+    total_exits = 0
+
+    index_visits = 0
+    index_duration = 0
+    index_active = 0
+    index_read = 0
+    index_scroll = 0
+    index_exits = 0
+    index_read_engaged = 0
+
+    for row in rows:
+        path = _analytics_normalizar_path((row or {}).get("path"))
+        duration = max(0, int((row or {}).get("duration_seconds") or 0))
+        active = max(0, int((row or {}).get("active_seconds") or 0))
+        read = max(0, int((row or {}).get("read_seconds") or 0))
+        scroll = max(0, min(100, int((row or {}).get("max_scroll_percent") or 0)))
+        is_index = bool((row or {}).get("is_index")) or path == "/"
+
+        exit_recorded = bool((row or {}).get("exit_recorded"))
+        exit_type = ((row or {}).get("exit_type") or "").strip().lower() or "unknown"
+        is_exit_site = bool(exit_recorded and exit_type != "internal")
+
+        total_duration += duration
+        total_active += active
+        total_read += read
+        if is_exit_site:
+            total_exits += 1
+            exit_type_counts[exit_type] += 1
+
+        session_key = ((row or {}).get("session_key") or "").strip()
+        visitor_key = ((row or {}).get("visitor_key") or "").strip()
+        visit_id = ((row or {}).get("visit_id") or "").strip()
+        user_key = ((row or {}).get("user_key") or "").strip().lower()
+        sess_entity = session_key or visitor_key or user_key or visit_id
+        if sess_entity:
+            sessions_paths[sess_entity].add(path)
+
+        page = page_stats.setdefault(path, {
+            "path": path,
+            "visits": 0,
+            "duration_sum": 0,
+            "active_sum": 0,
+            "read_sum": 0,
+            "scroll_sum": 0,
+            "exit_count": 0,
+            "visitors": set(),
+        })
+        page["visits"] += 1
+        page["duration_sum"] += duration
+        page["active_sum"] += active
+        page["read_sum"] += read
+        page["scroll_sum"] += scroll
+        if is_exit_site:
+            page["exit_count"] += 1
+
+        visitor_entity = user_key or visitor_key or session_key or visit_id
+        if visitor_entity:
+            page["visitors"].add(visitor_entity)
+
+        if is_index:
+            index_visits += 1
+            index_duration += duration
+            index_active += active
+            index_read += read
+            index_scroll += scroll
+            if read >= 20:
+                index_read_engaged += 1
+            if is_exit_site:
+                index_exits += 1
+
+    pages = []
+    for path, info in page_stats.items():
+        visits = int(info["visits"] or 0)
+        exits = int(info["exit_count"] or 0)
+        pages.append({
+            "path": path,
+            "visits": visits,
+            "unique_visitors": len(info["visitors"]),
+            "avg_duration_seconds": _analytics_media_inteira(info["duration_sum"], visits),
+            "avg_active_seconds": _analytics_media_inteira(info["active_sum"], visits),
+            "avg_read_seconds": _analytics_media_inteira(info["read_sum"], visits),
+            "avg_scroll_percent": _analytics_media_inteira(info["scroll_sum"], visits),
+            "exit_count": exits,
+            "exit_rate_percent": round((exits / visits) * 100, 2) if visits else 0.0,
+        })
+
+    pages.sort(key=lambda item: (item["visits"], item["exit_count"]), reverse=True)
+    top_exit_pages = [item for item in pages if int(item.get("exit_count") or 0) > 0]
+    top_exit_pages.sort(key=lambda item: item["exit_count"], reverse=True)
+
+    session_depth_values = [len(paths) for paths in sessions_paths.values() if paths]
+    avg_pages_session = 0.0
+    if session_depth_values:
+        avg_pages_session = round(sum(session_depth_values) / len(session_depth_values), 2)
+
+    base["total_visits"] = len(rows)
+    base["tracked_pages"] = len(page_stats)
+    base["avg_duration_seconds"] = _analytics_media_inteira(total_duration, len(rows))
+    base["avg_active_seconds"] = _analytics_media_inteira(total_active, len(rows))
+    base["avg_read_seconds"] = _analytics_media_inteira(total_read, len(rows))
+    base["avg_pages_per_session"] = avg_pages_session
+    base["total_exits"] = total_exits
+    base["exit_rate_percent"] = round((total_exits / len(rows)) * 100, 2) if rows else 0.0
+    base["pages"] = pages
+    base["top_exit_pages"] = top_exit_pages[:15]
+    base["exit_types"] = _analytics_sorted_counts(exit_type_counts, limit=8)
+    base["index"] = {
+        "visits": index_visits,
+        "avg_time_seconds": _analytics_media_inteira(index_duration, index_visits),
+        "avg_active_seconds": _analytics_media_inteira(index_active, index_visits),
+        "avg_read_seconds": _analytics_media_inteira(index_read, index_visits),
+        "avg_scroll_percent": _analytics_media_inteira(index_scroll, index_visits),
+        "read_engaged_visits": index_read_engaged,
+        "read_engaged_rate_percent": round((index_read_engaged / index_visits) * 100, 2) if index_visits else 0.0,
+        "exit_count": index_exits,
+        "exit_rate_percent": round((index_exits / index_visits) * 100, 2) if index_visits else 0.0,
+    }
+    return base
+
+
 def montar_relatorio_analytics_completo(start=None, end=None, plan="all"):
     plan_norm = (plan or "all").strip().lower()
     if plan_norm != "all" and plan_norm not in PLANOS:
@@ -3763,6 +3948,12 @@ def montar_relatorio_analytics_completo(start=None, end=None, plan="all"):
             if ((lead.get("target_plan") or "").strip().lower() == plan_norm)
             or ((lead.get("current_plan") or "").strip().lower() == plan_norm)
         ]
+
+    eventos_engajamento_paginas = listar_eventos_engajamento_paginas_analytics(
+        start_date=start_dt,
+        end_date=end_dt
+    )
+    analise_engajamento_paginas = montar_analise_engajamento_paginas(eventos_engajamento_paginas)
     resumo_funil = montar_resumo_funil(eventos_funil)
 
     totals_by_plan = {plano: 0 for plano in PLANOS.keys()}
@@ -3980,6 +4171,7 @@ def montar_relatorio_analytics_completo(start=None, end=None, plan="all"):
             "top_target_plans": _analytics_sorted_counts(upgrade_target_counts, limit=10),
             "top_sources": _analytics_sorted_counts(upgrade_source_counts, limit=10),
         },
+        "engagement": analise_engajamento_paginas,
         "onboarding": onboarding_stats,
         "retention_cohorts": retention_cohorts,
         "suggestions": suggestions,
@@ -4464,7 +4656,11 @@ def aplicar_protecoes_request():
     g.request_id = uuid.uuid4().hex[:12]
     g.request_ip = ip
     obs_increment("http.requests_total")
-    admin_surface = path.startswith("/admin") or path.startswith("/api/analytics") or path == "/dashboard"
+    admin_surface = (
+        path.startswith("/admin")
+        or (path.startswith("/api/analytics") and path != "/api/analytics/page-track")
+        or path == "/dashboard"
+    )
 
     if admin_surface and not _ip_em_allowlist(ip):
         return "Acesso administrativo bloqueado para este IP.", 403
@@ -4517,6 +4713,10 @@ def aplicar_protecoes_request():
 
     if method == "POST" and path == "/api/funnel/track":
         if excedeu_rate_limit(f"post_funnel_track:{ip}", limite=240, janela_segundos=60):
+            return jsonify({"ok": False, "error": "rate_limited"}), 429
+
+    if method == "POST" and path == "/api/analytics/page-track":
+        if excedeu_rate_limit(f"post_page_track:{ip}", limite=360, janela_segundos=60):
             return jsonify({"ok": False, "error": "rate_limited"}), 429
 
     if method == "POST" and path == "/minha-conta/afiliados/ativar":
@@ -5779,6 +5979,77 @@ def api_reports_monthly():
     })
 
 
+@app.route("/api/analytics/page-track", methods=["POST"])
+def api_analytics_page_track():
+    if not _origem_confiavel_request():
+        return jsonify({"ok": False, "error": "origin_not_allowed"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "invalid_payload"}), 400
+
+    visit_id = _normalizar_texto_funil(payload.get("visit_id"), max_len=120)
+    if not visit_id:
+        return jsonify({"ok": False, "error": "visit_id_required"}), 400
+
+    path = _analytics_normalizar_path(payload.get("path") or "/")
+    page_title = _normalizar_texto_funil(payload.get("page_title"), max_len=200)
+    exit_type = _normalizar_texto_funil(payload.get("exit_type"), max_len=40, lower=True)
+    if exit_type not in {"internal", "outbound", "close", "reload", "unknown"}:
+        exit_type = "unknown"
+
+    def _ms_to_seconds(value):
+        try:
+            num = float(value or 0)
+        except (TypeError, ValueError):
+            return 0
+        if num <= 0:
+            return 0
+        return max(0, min(int(round(num / 1000.0)), 86400))
+
+    def _to_scroll_percent(value):
+        try:
+            num = float(value or 0)
+        except (TypeError, ValueError):
+            return 0
+        return max(0, min(int(round(num)), 100))
+
+    duration_seconds = _ms_to_seconds(payload.get("duration_ms"))
+    active_seconds = _ms_to_seconds(payload.get("active_ms"))
+    read_seconds = _ms_to_seconds(payload.get("read_ms"))
+    if path != "/":
+        read_seconds = 0
+    scroll_percent = _to_scroll_percent(payload.get("max_scroll_percent"))
+    is_exit = bool(payload.get("is_exit"))
+
+    funnel_context = obter_contexto_funil()
+    tracked = registrar_evento_engajamento_pagina_analytics(
+        visit_id=visit_id,
+        path=path,
+        page_title=page_title,
+        visitor_key=funnel_context.get("visitor_key"),
+        session_key=funnel_context.get("session_key"),
+        user_key=obter_email_cliente_logado() or None,
+        source_path=path,
+        referrer=_normalizar_texto_funil(request.headers.get("Referer"), max_len=320),
+        utm_source=_normalizar_texto_funil(payload.get("utm_source"), max_len=120),
+        utm_medium=_normalizar_texto_funil(payload.get("utm_medium"), max_len=120),
+        utm_campaign=_normalizar_texto_funil(payload.get("utm_campaign"), max_len=120),
+        utm_content=_normalizar_texto_funil(payload.get("utm_content"), max_len=120),
+        utm_term=_normalizar_texto_funil(payload.get("utm_term"), max_len=120),
+        duration_seconds=duration_seconds,
+        active_seconds=active_seconds,
+        read_seconds=read_seconds,
+        max_scroll_percent=scroll_percent,
+        is_index=(path == "/"),
+        is_exit=is_exit,
+        exit_type=exit_type,
+        seen_at=agora_utc()
+    )
+
+    return jsonify({"ok": True, "tracked": bool(tracked)})
+
+
 @app.route("/api/funnel/track", methods=["POST"])
 def api_funnel_track():
     if not _origem_confiavel_request():
@@ -6882,6 +7153,7 @@ def api_analytics_summary():
         "funnel": relatorio.get("funnel") or {},
         "channels": relatorio.get("channels") or {},
         "upgrades": relatorio.get("upgrades") or {},
+        "engagement": relatorio.get("engagement") or {},
         "onboarding": relatorio.get("onboarding") or {},
         "retention_cohorts": relatorio.get("retention_cohorts") or [],
         "suggestions": relatorio.get("suggestions") or [],
