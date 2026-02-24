@@ -32,6 +32,7 @@ from whatsapp_sender import schedule_whatsapp
 from backup_utils import criar_backup_criptografado, remover_backups_antigos
 
 from database import (
+    get_conn,
     init_db,
     salvar_order,
     buscar_order_por_id,
@@ -1044,6 +1045,14 @@ def montar_resumo_onboarding_admin(linhas):
                 f"&csrf_token={quote(csrf_token, safe='')}"
             )
 
+        concluir_route = None
+        if status != "Concluido" and EMAIL_RE.fullmatch(email_item):
+            concluir_route = (
+                "/admin/onboarding/concluir"
+                f"?email={quote(email_item, safe='')}"
+                f"&csrf_token={quote(csrf_token, safe='')}"
+            )
+
         resultados.append({
             "email": email_item,
             "email_masked": mascarar_email_compacto((linha or {}).get("email")),
@@ -1067,6 +1076,7 @@ def montar_resumo_onboarding_admin(linhas):
             "activation_whatsapp_stage": whatsapp_stage_token,
             "activation_whatsapp_sent_current_stage": ja_enviado_nesta_etapa,
             "activation_whatsapp_last_sent_at": last_sent_at,
+            "activation_mark_done_route": concluir_route,
             "steps": steps_bool,
         })
 
@@ -1736,9 +1746,50 @@ def excedeu_rate_limit(chave, limite, janela_segundos):
         return False
 
 
+NOME_PARTICULAS_MINUSCULAS = {
+    "da", "de", "do", "das", "dos", "e"
+}
+NOME_ROMANOS_MAIUSCULOS = {
+    "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii"
+}
+
+
+def _capitalizar_fragmento_nome(fragmento):
+    frag = (fragmento or "").strip()
+    if not frag:
+        return ""
+    frag_lower = frag.lower()
+    if frag_lower in NOME_ROMANOS_MAIUSCULOS:
+        return frag_lower.upper()
+    return frag_lower[:1].upper() + frag_lower[1:]
+
+
+def _capitalizar_palavra_nome(palavra):
+    partes = re.split(r"([\-'])", palavra or "")
+    normalizado = []
+    for parte in partes:
+        if parte in {"-", "'"}:
+            normalizado.append(parte)
+            continue
+        normalizado.append(_capitalizar_fragmento_nome(parte))
+    return "".join(normalizado)
+
+
 def normalizar_nome(nome):
     nome = re.sub(r"\s+", " ", (nome or "").strip())
-    return nome[:120]
+    if not nome:
+        return ""
+
+    palavras = [p for p in nome.split(" ") if p]
+    resultado = []
+    for idx, palavra in enumerate(palavras):
+        palavra_lower = palavra.lower()
+        if idx > 0 and palavra_lower in NOME_PARTICULAS_MINUSCULAS:
+            resultado.append(palavra_lower)
+        else:
+            resultado.append(_capitalizar_palavra_nome(palavra_lower))
+
+    return " ".join(resultado)[:120]
 
 
 def normalizar_email(email):
@@ -1754,6 +1805,136 @@ def normalizar_telefone_login(telefone):
     if telefone_num.startswith("55") and len(telefone_num) > 11:
         telefone_num = telefone_num[2:]
     return telefone_num
+
+
+def _descriptografar_nome_cliente_com_flag(valor):
+    texto = (valor or "").strip()
+    if not texto:
+        return "", False
+    try:
+        nome = obter_fernet_cliente().decrypt(texto.encode("utf-8")).decode("utf-8")
+        return nome, True
+    except (InvalidToken, ValueError, TypeError):
+        return texto, False
+
+
+def normalizar_nomes_existentes_banco():
+    if APP_SKIP_DB_INIT:
+        return 0
+
+    atualizados = 0
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+    except Exception as exc:
+        print(f"[NOME] Falha ao iniciar normalizacao no banco: {exc}", flush=True)
+        return 0
+
+    def _normalizar_tabela(select_sql, update_sql):
+        nonlocal atualizados
+        cur.execute(select_sql)
+        for pk, nome_atual in cur.fetchall():
+            nome_bruto = re.sub(r"\s+", " ", (nome_atual or "").strip())
+            nome_norm = normalizar_nome(nome_bruto)
+            if not nome_norm or nome_norm == nome_bruto:
+                continue
+            cur.execute(update_sql, (nome_norm, pk))
+            if cur.rowcount > 0:
+                atualizados += 1
+
+    try:
+        _normalizar_tabela(
+            """
+            SELECT order_id, nome
+            FROM orders
+            WHERE nome IS NOT NULL AND BTRIM(nome) <> ''
+            """,
+            "UPDATE orders SET nome = %s WHERE order_id = %s"
+        )
+
+        _normalizar_tabela(
+            """
+            SELECT order_id, affiliate_nome
+            FROM orders
+            WHERE affiliate_nome IS NOT NULL AND BTRIM(affiliate_nome) <> ''
+            """,
+            "UPDATE orders SET affiliate_nome = %s WHERE order_id = %s"
+        )
+
+        _normalizar_tabela(
+            """
+            SELECT slug, nome
+            FROM affiliates
+            WHERE nome IS NOT NULL AND BTRIM(nome) <> ''
+            """,
+            "UPDATE affiliates SET nome = %s, updated_at = NOW() WHERE slug = %s"
+        )
+
+        _normalizar_tabela(
+            """
+            SELECT referred_email, affiliate_nome
+            FROM affiliate_referrals
+            WHERE affiliate_nome IS NOT NULL AND BTRIM(affiliate_nome) <> ''
+            """,
+            "UPDATE affiliate_referrals SET affiliate_nome = %s, updated_at = NOW() WHERE referred_email = %s"
+        )
+
+        _normalizar_tabela(
+            """
+            SELECT id, affiliate_nome
+            FROM affiliate_commissions
+            WHERE affiliate_nome IS NOT NULL AND BTRIM(affiliate_nome) <> ''
+            """,
+            "UPDATE affiliate_commissions SET affiliate_nome = %s, updated_at = NOW() WHERE id = %s"
+        )
+
+        cur.execute("""
+            SELECT email, nome
+            FROM customer_accounts
+            WHERE nome IS NOT NULL AND BTRIM(nome) <> ''
+        """)
+        for email, nome_valor in cur.fetchall():
+            nome_bruto, estava_criptografado = _descriptografar_nome_cliente_com_flag(nome_valor)
+            nome_norm = normalizar_nome(nome_bruto)
+            if not nome_norm:
+                continue
+
+            if estava_criptografado:
+                if nome_norm == nome_bruto:
+                    continue
+                novo_valor = criptografar_texto_cliente(nome_norm)
+            else:
+                nome_limpo = re.sub(r"\s+", " ", (nome_valor or "").strip())
+                if nome_norm == nome_limpo:
+                    continue
+                novo_valor = nome_norm
+
+            cur.execute(
+                """
+                UPDATE customer_accounts
+                SET nome = %s, updated_at = NOW()
+                WHERE email = %s
+                """,
+                (novo_valor, email)
+            )
+            if cur.rowcount > 0:
+                atualizados += 1
+
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        print(f"[NOME] Falha durante normalizacao de nomes: {exc}", flush=True)
+    finally:
+        cur.close()
+        conn.close()
+
+    if atualizados > 0:
+        print(f"[NOME] Normalizacao concluida: {atualizados} registro(s) atualizados.", flush=True)
+    return atualizados
+
+
+if not APP_SKIP_DB_INIT:
+    normalizar_nomes_existentes_banco()
 
 
 def resolver_login_para_email(login_value):
@@ -6377,6 +6558,27 @@ def admin_onboarding_whatsapp():
     return redirect(link)
 
 
+@app.route("/admin/onboarding/concluir")
+def admin_onboarding_concluir():
+    if not session.get("admin"):
+        return redirect("/admin/login")
+
+    token = (request.args.get("csrf_token") or "").strip()
+    if not validar_csrf_token(token):
+        return "CSRF token invalido", 403
+
+    email = normalizar_email(request.args.get("email") or "")
+    if not EMAIL_RE.fullmatch(email):
+        return redirect("/admin/dashboard?ok=0&msg=E-mail%20invalido%20para%20onboarding")
+
+    payload = {chave: True for chave, _ in ONBOARDING_PROGRESS_STEPS}
+    salvo = salvar_onboarding_progresso_cliente(email, payload)
+    if not salvo:
+        return redirect("/admin/dashboard?ok=0&msg=Falha%20ao%20atualizar%20onboarding")
+
+    return redirect("/admin/dashboard?ok=1&msg=Ativacao%20marcada%20como%20concluida")
+
+
 @app.route("/admin/usuario/adicionar", methods=["POST"])
 def admin_usuario_adicionar():
     if not session.get("admin"):
@@ -6386,7 +6588,7 @@ def admin_usuario_adicionar():
     if not validar_csrf_token(token):
         return "CSRF token invalido", 403
 
-    nome = (request.form.get("nome") or "").strip()
+    nome = normalizar_nome(request.form.get("nome") or "")
     email = (request.form.get("email") or "").strip()
     telefone = (request.form.get("telefone") or "").strip()
     criado_em_raw = (request.form.get("created_at") or "").strip()
@@ -6447,7 +6649,7 @@ def admin_afiliados_adicionar():
     if not session.get("admin"):
         return redirect("/admin/login")
 
-    nome = (request.form.get("nome") or "").strip()
+    nome = normalizar_nome(request.form.get("nome") or "")
     slug_raw = (request.form.get("slug") or nome).strip()
     slug = normalizar_slug_afiliado(slug_raw)
     email = (request.form.get("email") or "").strip() or None
@@ -6487,7 +6689,7 @@ def admin_afiliados_editar(slug):
 
     slug_atual = normalizar_slug_afiliado(slug)
     slug_novo = normalizar_slug_afiliado((request.form.get("slug") or "").strip())
-    nome = (request.form.get("nome") or "").strip()
+    nome = normalizar_nome(request.form.get("nome") or "")
     email = (request.form.get("email") or "").strip() or None
     telefone = (request.form.get("telefone") or "").strip() or None
     ativo = (request.form.get("ativo") or "").strip().lower() in ("1", "on", "true", "yes")

@@ -157,6 +157,69 @@ def test_resumo_onboarding_mostra_icone_quando_ainda_nao_enviado(app_module, mon
     assert "stage=tool_downloaded" in item["activation_whatsapp_route"]
 
 
+def test_resumo_onboarding_mostra_icone_marcar_concluido(app_module, monkeypatch):
+    monkeypatch.setattr(app_module, "gerar_link_whatsapp_ativacao", lambda payload: "https://wa.me/5511999998888?text=ok")
+    monkeypatch.setattr(app_module, "montar_mensagem_whatsapp_ativacao", lambda payload: "mensagem de teste")
+
+    linha = {
+        "email": "cliente@example.com",
+        "account_name": "Cliente Teste",
+        "account_phone": "11999998888",
+        "email_accessed": True,
+        "tool_downloaded": False,
+        "zip_extracted": False,
+        "tool_installed": False,
+        "robot_activated": False,
+        "activation_whatsapp_last_stage": "not_started",
+        "activation_whatsapp_last_sent_at": datetime(2026, 2, 24, 12, 0, 0),
+        "last_order_name": "Cliente Teste",
+        "last_order_phone": "11999998888",
+        "last_order_plan": "trx-gratis",
+        "last_order_status": "PAGO",
+        "paid_orders": 1,
+        "total_orders": 1,
+    }
+
+    with app_module.app.test_request_context("/admin/dashboard"):
+        resumo = app_module.montar_resumo_onboarding_admin([linha])
+
+    item = resumo["items"][0]
+    assert item["status"] == "Em progresso"
+    assert item["activation_mark_done_route"] is not None
+    assert "/admin/onboarding/concluir" in item["activation_mark_done_route"]
+
+
+def test_resumo_onboarding_oculta_icone_marcar_concluido_quando_finalizado(app_module, monkeypatch):
+    monkeypatch.setattr(app_module, "gerar_link_whatsapp_ativacao", lambda payload: "https://wa.me/5511999998888?text=ok")
+    monkeypatch.setattr(app_module, "montar_mensagem_whatsapp_ativacao", lambda payload: "mensagem de teste")
+
+    linha = {
+        "email": "cliente@example.com",
+        "account_name": "Cliente Teste",
+        "account_phone": "11999998888",
+        "email_accessed": True,
+        "tool_downloaded": True,
+        "zip_extracted": True,
+        "tool_installed": True,
+        "robot_activated": True,
+        "activation_whatsapp_last_stage": "concluded",
+        "activation_whatsapp_last_sent_at": datetime(2026, 2, 24, 12, 0, 0),
+        "last_order_name": "Cliente Teste",
+        "last_order_phone": "11999998888",
+        "last_order_plan": "trx-gratis",
+        "last_order_status": "PAGO",
+        "paid_orders": 1,
+        "total_orders": 1,
+    }
+
+    with app_module.app.test_request_context("/admin/dashboard"):
+        resumo = app_module.montar_resumo_onboarding_admin([linha])
+
+    item = resumo["items"][0]
+    assert item["status"] == "Concluido"
+    assert item["activation_mark_done_route"] is None
+
+
 def test_admin_onboarding_whatsapp_registra_e_redireciona(app_module, client, monkeypatch):
     payload = {
         "email": "cliente@example.com",
@@ -198,3 +261,33 @@ def test_admin_onboarding_whatsapp_registra_e_redireciona(app_module, client, mo
     assert response.status_code == 302
     assert response.headers["Location"] == "https://wa.me/5511999998888?text=ok"
     assert call == {"email": "cliente@example.com", "stage": "not_started"}
+
+
+def test_admin_onboarding_concluir_marca_todas_as_etapas(app_module, client, monkeypatch):
+    call = {}
+
+    monkeypatch.setattr(app_module, "validar_csrf_token", lambda token: token == "ok")
+
+    def _salvar(email, payload):
+        call["email"] = email
+        call["payload"] = dict(payload)
+        return dict(payload)
+
+    monkeypatch.setattr(app_module, "salvar_onboarding_progresso_cliente", _salvar)
+
+    with client.session_transaction() as sess:
+        sess["admin"] = True
+        sess["_csrf_token"] = "ok"
+
+    response = client.get(
+        "/admin/onboarding/concluir?email=cliente@example.com&csrf_token=ok",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert "/admin/dashboard?ok=1" in response.headers["Location"]
+    assert call["email"] == "cliente@example.com"
+
+    expected_steps = {step for step, _ in app_module.ONBOARDING_PROGRESS_STEPS}
+    assert set(call["payload"].keys()) == expected_steps
+    assert all(call["payload"][step] is True for step in expected_steps)

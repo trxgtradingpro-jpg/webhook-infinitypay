@@ -37,6 +37,33 @@
       fill: currentColor;
       display: block;
     }
+    .mark-done-icon {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1px solid #38bdf8;
+      background: rgba(56, 189, 248, 0.15);
+      color: #bae6fd;
+      text-decoration: none;
+    }
+    .mark-done-icon:hover {
+      border-color: #7dd3fc;
+      background: rgba(56, 189, 248, 0.25);
+    }
+    .mark-done-icon svg {
+      width: 12px;
+      height: 12px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      display: block;
+    }
     .wa-tooltip {
       display: none;
       position: absolute;
@@ -171,6 +198,18 @@
                           <path d="M2 21l20-9L2 3l4 7 8 2-8 2-4 7z"></path>
                         </svg>
                         <span class="wa-tooltip">{{ item.activation_whatsapp_preview }}</span>
+                      </a>
+                    {% endif %}
+                    {% if item.activation_mark_done_route %}
+                      <a
+                        class="mark-done-icon"
+                        href="{{ item.activation_mark_done_route }}"
+                        aria-label="Marcar processo de ativacao como concluido"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M20 6L9 17l-5-5"></path>
+                        </svg>
+                        <span class="wa-tooltip">Marcar processo como concluido</span>
                       </a>
                     {% endif %}
                   </div>
