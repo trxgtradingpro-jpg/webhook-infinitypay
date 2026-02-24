@@ -122,10 +122,10 @@
     <section class="panel">
       <h3 style="margin:0 0 12px;">Progresso de ativacao por usuario</h3>
       <div class="stats" style="margin:0 0 12px;">
-        <div class="card"><div class="label">Usuarios mapeados</div><div class="value">{{ onboarding_stats.total_users }}</div></div>
-        <div class="card"><div class="label">Concluidos</div><div class="value">{{ onboarding_stats.completed }}</div></div>
+        <div class="card"><div class="label">Usuários mapeados</div><div class="value">{{ onboarding_stats.total_users }}</div></div>
+        <div class="card"><div class="label">Concluídos</div><div class="value">{{ onboarding_stats.completed }}</div></div>
         <div class="card"><div class="label">Em progresso</div><div class="value">{{ onboarding_stats.in_progress }}</div></div>
-        <div class="card"><div class="label">Nao iniciados</div><div class="value">{{ onboarding_stats.not_started }}</div></div>
+        <div class="card"><div class="label">Não iniciados</div><div class="value">{{ onboarding_stats.not_started }}</div></div>
       </div>
 
       <div class="table-wrap">
@@ -153,11 +153,11 @@
                 <td>
                   <div class="status-inline">
                     {% if item.status == 'Concluido' %}
-                      <span class="ok">Concluido</span>
+                      <span class="ok">Concluído</span>
                     {% elif item.status == 'Em progresso' %}
                       <span class="pend">Em progresso</span>
                     {% else %}
-                      <span class="muted">Nao iniciado</span>
+                      <span class="muted">Não iniciado</span>
                     {% endif %}
                     {% if item.activation_whatsapp_route %}
                       <a

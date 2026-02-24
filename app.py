@@ -222,9 +222,9 @@ WHATSAPP_TEMPLATE = corrigir_texto_quebrado(os.environ.get(
 WHATSAPP_PENDENTE_PAGO_TEMPLATE = corrigir_texto_quebrado(os.environ.get(
     "WHATSAPP_PENDENTE_PAGO_TEMPLATE",
     (
-        "Oi! {nome} Tudo bem? Notei que voce selecionou o plano {plano} e nao concluiu o checkout.\n"
-        "Geralmente e por duvida de qual plano faz mais sentido ou algum erro no pagamento.\n"
-        "Me diz qual plano voce escolheu e o que te travou que eu te ajudo rapidinho."
+        "Oi, {nome}! Tudo bem? Notei que voc\u00ea selecionou o plano {plano} e n\u00e3o concluiu o checkout.\n"
+        "Geralmente isso acontece por d\u00favida sobre qual plano faz mais sentido ou por algum erro no pagamento.\n"
+        "Me diz qual plano voc\u00ea escolheu e o que te travou, que eu te ajudo rapidinho."
     )
 ))
 WA_SENDER_URL = os.environ.get("WA_SENDER_URL", "").strip()
@@ -871,29 +871,29 @@ ONBOARDING_STEP_POSITION = {
 }
 ONBOARDING_WHATSAPP_STEP_GUIDE = {
     "email_accessed": (
-        "1) Abra o e-mail de liberacao do TRX PRO e confira login + senha temporaria.\n"
-        "2) Se nao achar, veja spam/promocoes.\n"
-        "3) Depois disso, volte aqui que te guio no proximo passo."
+        "1) Abra o e-mail de libera\u00e7\u00e3o do TRX PRO e confira login + senha tempor\u00e1ria.\n"
+        "2) Se n\u00e3o achar, veja em Spam/Promo\u00e7\u00f5es.\n"
+        "3) Depois disso, volte aqui que te guio no pr\u00f3ximo passo."
     ),
     "tool_downloaded": (
-        "1) Entre na Area do Cliente.\n"
+        "1) Entre na \u00c1rea do Cliente.\n"
         "2) Clique em download da ferramenta do seu plano.\n"
-        "3) Aguarde finalizar e me avise para seguirmos para a instalacao."
+        "3) Aguarde finalizar e me avise para seguirmos para a instala\u00e7\u00e3o."
     ),
     "zip_extracted": (
-        "1) Localize o arquivo .rar/.zip que voce recebeu.\n"
+        "1) Localize o arquivo .rar/.zip que voc\u00ea recebeu.\n"
         "2) Extraia usando a senha enviada no e-mail.\n"
-        "3) Se der erro de senha, me chama aqui que resolvo com voce."
+        "3) Se der erro de senha, me chama aqui que resolvo com voc\u00ea."
     ),
     "tool_installed": (
         "1) Abra a pasta extraida e execute o instalador.\n"
-        "2) Conclua a instalacao com permissao de administrador.\n"
-        "3) Depois me confirme para fazermos a ativacao final."
+        "2) Conclua a instala\u00e7\u00e3o com permiss\u00e3o de administrador.\n"
+        "3) Depois me confirme para fazermos a ativa\u00e7\u00e3o final."
     ),
     "robot_activated": (
         "1) Abra a plataforma e carregue o TRX PRO.\n"
-        "2) Valide licenca/plano ativo e parametros basicos.\n"
-        "3) Teste no simulador e me avise para validar tudo com voce."
+        "2) Valide licen\u00e7a/plano ativo e par\u00e2metros b\u00e1sicos.\n"
+        "3) Teste no simulador e me avise para validar tudo com voc\u00ea."
     ),
 }
 
@@ -2571,7 +2571,7 @@ def detectar_etapa_onboarding_pendente(payload):
             return step_key, step_label
 
     if done_count >= total_steps:
-        return "completed", "Ativacao concluida"
+        return "completed", "Ativa\u00e7\u00e3o conclu\u00edda"
     return "not_started", "Primeira etapa"
 
 
@@ -2644,37 +2644,37 @@ def montar_mensagem_whatsapp_ativacao(payload):
     if stage_key == "completed":
         return (
             f"{saudacao}, {primeiro_nome}!\n\n"
-            f"Parabens! Vi aqui que a ativacao do seu {plano_nome} foi concluida.\n"
-            "Se quiser, te envio agora um checklist rapido de boas praticas para os primeiros dias.\n\n"
+            f"Parab\u00e9ns! Vi aqui que a ativa\u00e7\u00e3o do seu {plano_nome} foi conclu\u00edda.\n"
+            "Se quiser, te envio agora um checklist r\u00e1pido de boas pr\u00e1ticas para os primeiros dias.\n\n"
             "Se precisar de qualquer ajuste fino, me chama aqui que te acompanho."
         )
 
     if stage_key == "not_started":
         return (
             f"{saudacao}, {primeiro_nome}!\n\n"
-            f"Vi que sua ativacao do {plano_nome} ainda nao foi iniciada.\n"
-            "Segue o caminho rapido para comecar agora:\n"
-            "1) Acessar o e-mail de liberacao\n"
+            f"Vi que sua ativa\u00e7\u00e3o do {plano_nome} ainda n\u00e3o foi iniciada.\n"
+            "Segue o caminho r\u00e1pido para come\u00e7ar agora:\n"
+            "1) Acessar o e-mail de libera\u00e7\u00e3o\n"
             "2) Baixar a ferramenta\n"
             "3) Descompactar com a senha\n"
             "4) Instalar a ferramenta\n"
-            "5) Ativar o robo\n\n"
-            f"Area do cliente: {area_cliente_url}\n"
+            "5) Ativar o rob\u00f4\n\n"
+            f"\u00c1rea do cliente: {area_cliente_url}\n"
             "Se quiser, fazemos juntos por aqui em tempo real."
         )
 
     etapa_num = int(ONBOARDING_STEP_POSITION.get(stage_key) or 0)
     instrucao = ONBOARDING_WHATSAPP_STEP_GUIDE.get(stage_key) or (
-        "Me chama aqui que te explico passo a passo para concluir essa etapa."
+        "Me chama aqui que te explico o passo a passo para concluir essa etapa."
     )
     etapa_prefixo = f"etapa {etapa_num}/5" if etapa_num > 0 else "etapa atual"
 
     return (
         f"{saudacao}, {primeiro_nome}!\n\n"
-        f"Vi que voce parou na {etapa_prefixo}: {stage_label}.\n\n"
+        f"Vi que voc\u00ea parou na {etapa_prefixo}: {stage_label}.\n\n"
         f"{instrucao}\n\n"
-        f"Area do cliente: {area_cliente_url}\n"
-        "Se preferir, te acompanho agora para finalizar essa etapa."
+        f"\u00c1rea do cliente: {area_cliente_url}\n"
+        "Se preferir, eu te acompanho agora para finalizar essa etapa."
     )
 
 

@@ -25,8 +25,8 @@ def test_mensagem_ativacao_nao_iniciado(app_module, monkeypatch):
 
     msg = app_module.montar_mensagem_whatsapp_ativacao(payload)
     assert msg.startswith("Bom dia, Guilherme!")
-    assert "ainda nao foi iniciada" in msg
-    assert "1) Acessar o e-mail de liberacao" in msg
+    assert "ainda não foi iniciada" in msg
+    assert "1) Acessar o e-mail de liberação" in msg
 
 
 def test_mensagem_ativacao_etapa_em_progresso(app_module, monkeypatch):
@@ -49,7 +49,7 @@ def test_mensagem_ativacao_etapa_em_progresso(app_module, monkeypatch):
     assert msg.startswith("Boa tarde, Guilherme!")
     assert "etapa 2/5" in msg
     assert "Ja baixei a ferramenta" in msg
-    assert "Area do cliente: https://example.com/login" in msg
+    assert "Área do cliente: https://example.com/login" in msg
 
 
 def test_mensagem_ativacao_concluido(app_module, monkeypatch):
@@ -70,7 +70,7 @@ def test_mensagem_ativacao_concluido(app_module, monkeypatch):
 
     msg = app_module.montar_mensagem_whatsapp_ativacao(payload)
     assert msg.startswith("Boa noite, Guilherme!")
-    assert "ativacao do seu TRX GOLD foi concluida" in msg
+    assert "ativação do seu TRX GOLD foi concluída" in msg
 
 
 def test_link_whatsapp_ativacao_payload(app_module, monkeypatch):
