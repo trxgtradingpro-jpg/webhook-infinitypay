@@ -34,3 +34,41 @@ def test_compra_get_redireciona_home(client):
     response = client.get("/comprar", follow_redirects=False)
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/")
+
+
+def test_compra_gratis_reaproveita_pedido_recente(app_module, client, monkeypatch):
+    controle = {"salvou": 0, "email": 0}
+
+    monkeypatch.setattr(app_module, "validar_csrf_token", lambda token: True)
+    monkeypatch.setattr(
+        app_module,
+        "buscar_order_recente_por_cadastro",
+        lambda **kwargs: {"order_id": "order-existente-1", "plano": "trx-gratis", "status": "PAGO"},
+    )
+    monkeypatch.setattr(
+        app_module,
+        "salvar_order",
+        lambda **kwargs: controle.__setitem__("salvou", controle["salvou"] + 1),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "enviar_email",
+        lambda **kwargs: controle.__setitem__("email", controle["email"] + 1),
+    )
+
+    response = client.post(
+        "/comprar",
+        data={
+            "csrf_token": "ok",
+            "nome": "Gui Trader",
+            "email": "gui@example.com",
+            "telefone": "11999999999",
+            "plano": "trx-gratis",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].startswith("/sucesso/order-existente-1?t=")
+    assert controle["salvou"] == 0
+    assert controle["email"] == 0

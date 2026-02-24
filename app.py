@@ -35,6 +35,7 @@ from database import (
     init_db,
     salvar_order,
     buscar_order_por_id,
+    buscar_order_recente_por_cadastro,
     marcar_order_processada,
     reservar_order_para_processamento,
     restaurar_order_para_pendente,
@@ -5384,10 +5385,32 @@ def comprar():
     nome = dados["nome"]
     email = dados["email"]
     telefone = dados["telefone"]
+    plano_info = PLANOS[plano_id]
 
     session["nome"] = nome
     session["email"] = email
     session["telefone"] = telefone
+
+    if plano_info["preco"] <= 0:
+        try:
+            pedido_recente = buscar_order_recente_por_cadastro(
+                plano=plano_id,
+                email=email,
+                telefone=telefone,
+                janela_segundos=180,
+            )
+        except Exception as exc:
+            pedido_recente = None
+            print(f"[DUPLICADOS] Falha ao verificar pedido gratis recente para {email}: {exc}", flush=True)
+
+        status_recente = str((pedido_recente or {}).get("status") or "").strip().upper()
+        if pedido_recente and pedido_recente.get("order_id") and status_recente in {"PROCESSANDO", "PAGO"}:
+            order_existente = pedido_recente["order_id"]
+            print(
+                f"[DUPLICADOS] Reutilizando pedido gratis recente {order_existente} ({status_recente}) para {email}.",
+                flush=True,
+            )
+            return redirect(f"/sucesso/{order_existente}?t={gerar_token_sucesso_order(order_existente)}")
 
     order_id = str(uuid.uuid4())
     ja_possui_historico = bool(listar_pedidos_pagos_por_email(email, limite=1))
@@ -5427,10 +5450,10 @@ def comprar():
         }
     )
 
-    plano_info = PLANOS[plano_id]
-
     if plano_info["preco"] <= 0:
         arquivo = None
+        if not reservar_order_para_processamento(order_id):
+            return redirect(f"/sucesso/{order_id}?t={gerar_token_sucesso_order(order_id)}")
         try:
             arquivo, senha = compactar_plano(plano_info["pasta"], PASTA_SAIDA)
             enviar_email(
@@ -5496,6 +5519,10 @@ def comprar():
             return redirect(f"/sucesso/{order_id}?t={gerar_token_sucesso_order(order_id)}")
         except Exception as exc:
             registrar_falha_email(order_id, 1, str(exc))
+            try:
+                restaurar_order_para_pendente(order_id)
+            except Exception as restore_exc:
+                print(f"[CHECKOUT] Falha ao restaurar pedido {order_id}: {restore_exc}", flush=True)
             obs_mark_error(
                 "email",
                 exc,

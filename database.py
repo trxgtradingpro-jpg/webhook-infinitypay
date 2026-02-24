@@ -500,6 +500,72 @@ def buscar_order_por_id(order_id):
     }
 
 
+def buscar_order_recente_por_cadastro(plano, email, telefone, janela_segundos=180):
+    plano_norm = (plano or "").strip().lower()
+    email_norm = _normalizar_email_interno(email)
+    telefone_norm = (telefone or "").strip()
+
+    if not plano_norm or not email_norm:
+        return None
+
+    try:
+        janela = int(janela_segundos or 180)
+    except (TypeError, ValueError):
+        janela = 180
+    janela = max(30, min(janela, 3600))
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT order_id, plano, nome, email, telefone,
+               status, email_tentativas, erro_email,
+               whatsapp_enviado, whatsapp_tentativas,
+               erro_whatsapp, whatsapp_agendado_para,
+               whatsapp_mensagens_enviadas, created_at,
+               checkout_slug, affiliate_slug, affiliate_nome, affiliate_email, affiliate_telefone
+        FROM orders
+        WHERE plano = %s
+          AND LOWER(BTRIM(COALESCE(email, ''))) = %s
+          AND REGEXP_REPLACE(COALESCE(telefone, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(%s, ''), '\\D', '', 'g')
+          AND created_at >= (NOW() - (%s || ' seconds')::interval)
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (plano_norm, email_norm, telefone_norm, str(janela)),
+    )
+    row = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "order_id": row[0],
+        "plano": row[1],
+        "nome": row[2],
+        "email": row[3],
+        "telefone": row[4],
+        "status": row[5],
+        "email_tentativas": row[6],
+        "erro_email": row[7],
+        "whatsapp_enviado": row[8],
+        "whatsapp_tentativas": row[9],
+        "erro_whatsapp": row[10],
+        "whatsapp_agendado_para": row[11],
+        "whatsapp_mensagens_enviadas": row[12],
+        "created_at": row[13],
+        "checkout_slug": row[14],
+        "affiliate_slug": row[15],
+        "affiliate_nome": row[16],
+        "affiliate_email": row[17],
+        "affiliate_telefone": row[18],
+    }
+
+
 def marcar_order_processada(order_id):
     conn = get_conn()
     cur = conn.cursor()

@@ -352,22 +352,22 @@
     pingOnline();
     setInterval(pingOnline, 30000);
 
-    // ===== Fallback anti-interceptação (não quebra no plano grátis) =====
-    // Se algum JS global interceptar o submit e transformar em fetch/xhr,
-    // aqui a gente redireciona manualmente para onde o servidor mandou.
+    // Envio controlado do checkout para evitar duplo POST.
     (function () {
       const form = document.getElementById('checkout-form');
       const btn  = document.getElementById('checkout-submit');
       if (!form || !btn) return;
+      let submitting = false;
 
-      form.addEventListener('submit', function () {
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        if (submitting) return;
+        submitting = true;
         btn.disabled = true;
 
-        // Se for submit normal, a página navega e esse JS não continua.
-        setTimeout(async () => {
+        (async () => {
           try {
             const fd = new FormData(form);
-
             const resp = await fetch(form.action, {
               method: "POST",
               body: fd,
@@ -379,13 +379,11 @@
               redirect: "follow"
             });
 
-            // Se o servidor redirecionou (comum no plano grátis), vai para a URL final
             if (resp.redirected && resp.url) {
               window.location.href = resp.url;
               return;
             }
 
-            // Se o servidor devolveu JSON (comum no plano pago com backend ajustado)
             const ct = (resp.headers.get("content-type") || "").toLowerCase();
             if (ct.includes("application/json")) {
               const data = await resp.json();
@@ -395,16 +393,16 @@
               }
             }
 
-            // Caso inesperado: mostra resposta
             const txt = await resp.text();
             alert(txt || "Não foi possível continuar. Tente novamente.");
-            btn.disabled = false;
           } catch (e) {
             alert("Falha ao continuar. Tente novamente.");
+          } finally {
+            submitting = false;
             btn.disabled = false;
           }
-        }, 350);
-      }, true);
+        })();
+      });
     })();
   </script>
 </body>
