@@ -221,11 +221,9 @@ WHATSAPP_TEMPLATE = corrigir_texto_quebrado(os.environ.get(
 WHATSAPP_PENDENTE_PAGO_TEMPLATE = corrigir_texto_quebrado(os.environ.get(
     "WHATSAPP_PENDENTE_PAGO_TEMPLATE",
     (
-        "Ola {nome}, vi que seu pagamento do {plano} ficou pendente.\n\n"
-        "Voce quase concluiu sua compra e seu acesso ainda nao foi liberado.\n"
-        "Se quiser, eu te envio novamente o link oficial e te ajudo a finalizar agora.\n\n"
-        "Valor do plano: {valor}\n"
-        "{site}"
+        "Oi! {nome} Tudo bem? Notei que voce selecionou o plano {plano} e nao concluiu o checkout.\n"
+        "Geralmente e por duvida de qual plano faz mais sentido ou algum erro no pagamento.\n"
+        "Me diz qual plano voce escolheu e o que te travou que eu te ajudo rapidinho."
     )
 ))
 WA_SENDER_URL = os.environ.get("WA_SENDER_URL", "").strip()
@@ -866,6 +864,37 @@ ONBOARDING_PROGRESS_STEPS = (
     ("tool_installed", "J\u00e1 instalei a ferramenta"),
     ("robot_activated", "J\u00e1 consegui ativar o rob\u00f4"),
 )
+ONBOARDING_STEP_POSITION = {
+    chave: idx + 1
+    for idx, (chave, _) in enumerate(ONBOARDING_PROGRESS_STEPS)
+}
+ONBOARDING_WHATSAPP_STEP_GUIDE = {
+    "email_accessed": (
+        "1) Abra o e-mail de liberacao do TRX PRO e confira login + senha temporaria.\n"
+        "2) Se nao achar, veja spam/promocoes.\n"
+        "3) Depois disso, volte aqui que te guio no proximo passo."
+    ),
+    "tool_downloaded": (
+        "1) Entre na Area do Cliente.\n"
+        "2) Clique em download da ferramenta do seu plano.\n"
+        "3) Aguarde finalizar e me avise para seguirmos para a instalacao."
+    ),
+    "zip_extracted": (
+        "1) Localize o arquivo .rar/.zip que voce recebeu.\n"
+        "2) Extraia usando a senha enviada no e-mail.\n"
+        "3) Se der erro de senha, me chama aqui que resolvo com voce."
+    ),
+    "tool_installed": (
+        "1) Abra a pasta extraida e execute o instalador.\n"
+        "2) Conclua a instalacao com permissao de administrador.\n"
+        "3) Depois me confirme para fazermos a ativacao final."
+    ),
+    "robot_activated": (
+        "1) Abra a plataforma e carregue o TRX PRO.\n"
+        "2) Valide licenca/plano ativo e parametros basicos.\n"
+        "3) Teste no simulador e me avise para validar tudo com voce."
+    ),
+}
 
 
 def normalizar_slug_afiliado(valor):
@@ -969,9 +998,38 @@ def montar_resumo_onboarding_admin(linhas):
         )
         atualizado_fmt = formatar_data_hora_br(atualizado_base) if atualizado_base else "-"
 
+        nome_conta = descriptografar_texto_cliente((linha or {}).get("account_name"))
+        telefone_conta = descriptografar_texto_cliente((linha or {}).get("account_phone"))
+        nome_pedido = normalizar_nome((linha or {}).get("last_order_name") or "")
+        telefone_pedido = (linha or {}).get("last_order_phone") or ""
+
+        nome_contato = nome_pedido or normalizar_nome(nome_conta or "")
+        telefone_contato = normalizar_telefone(telefone_pedido or telefone_conta or "")
+
+        whatsapp_payload = {
+            "email": (linha or {}).get("email") or "",
+            "nome": nome_contato or "",
+            "telefone": telefone_contato or "",
+            "plano": (linha or {}).get("last_order_plan") or "",
+            "status": status,
+            "etapa_atual": etapa_atual or "",
+            "done_count": done_count,
+            "total_steps": total_steps,
+            "steps": steps_bool,
+        }
+        whatsapp_link = gerar_link_whatsapp_ativacao(whatsapp_payload)
+        whatsapp_status = ""
+        if not whatsapp_link:
+            whatsapp_status = "sem telefone"
+            if telefone_contato:
+                whatsapp_status = "telefone invalido"
+
         resultados.append({
             "email": (linha or {}).get("email"),
             "email_masked": mascarar_email_compacto((linha or {}).get("email")),
+            "nome": nome_contato or "",
+            "telefone": telefone_contato or "",
+            "telefone_masked": mascarar_telefone_compacto(telefone_contato or ""),
             "done_count": done_count,
             "total_steps": total_steps,
             "percent": percent,
@@ -982,6 +1040,8 @@ def montar_resumo_onboarding_admin(linhas):
             "last_order_status": (linha or {}).get("last_order_status") or "-",
             "paid_orders": int((linha or {}).get("paid_orders") or 0),
             "total_orders": int((linha or {}).get("total_orders") or 0),
+            "activation_whatsapp_link": whatsapp_link,
+            "activation_whatsapp_status": whatsapp_status,
             "steps": steps_bool,
         })
 
@@ -2454,6 +2514,101 @@ def formatar_telefone_whatsapp(telefone):
         return f"55{numeros}"
 
     raise ValueError("Telefone inv\u00e1lido para WhatsApp")
+
+
+def saudacao_whatsapp_periodo():
+    agora_local = converter_data_para_timezone_admin(agora_utc())
+    if not agora_local:
+        agora_local = datetime.now()
+
+    hora = int(getattr(agora_local, "hour", 0))
+    if 5 <= hora < 12:
+        return "Bom dia"
+    if 12 <= hora < 18:
+        return "Boa tarde"
+    return "Boa noite"
+
+
+def detectar_etapa_onboarding_pendente(payload):
+    steps = (payload or {}).get("steps") or []
+    done_count = int((payload or {}).get("done_count") or 0)
+    total_steps = int((payload or {}).get("total_steps") or len(steps) or len(ONBOARDING_PROGRESS_STEPS))
+
+    if done_count <= 0:
+        return "not_started", "Primeira etapa"
+
+    for step in steps:
+        if bool((step or {}).get("checked")):
+            continue
+        step_key = ((step or {}).get("key") or "").strip()
+        step_label = ((step or {}).get("label") or "").strip() or step_key
+        if step_key:
+            return step_key, step_label
+
+    if done_count >= total_steps:
+        return "completed", "Ativacao concluida"
+    return "not_started", "Primeira etapa"
+
+
+def montar_mensagem_whatsapp_ativacao(payload):
+    payload = payload or {}
+    saudacao = saudacao_whatsapp_periodo()
+    nome = normalizar_nome(payload.get("nome") or "") or "Cliente"
+    primeiro_nome = nome.split(" ")[0] if nome else "Cliente"
+    plano_id = (payload.get("plano") or "").strip().lower()
+    plano_nome = PLANOS.get(plano_id, {}).get("nome", plano_id or "TRX PRO")
+    stage_key, stage_label = detectar_etapa_onboarding_pendente(payload)
+    area_cliente_url = f"{PUBLIC_BASE_URL}/login"
+
+    if stage_key == "completed":
+        return (
+            f"{saudacao}, {primeiro_nome}!\n\n"
+            f"Parabens! Vi aqui que a ativacao do seu {plano_nome} foi concluida.\n"
+            "Se quiser, te envio agora um checklist rapido de boas praticas para os primeiros dias.\n\n"
+            "Se precisar de qualquer ajuste fino, me chama aqui que te acompanho."
+        )
+
+    if stage_key == "not_started":
+        return (
+            f"{saudacao}, {primeiro_nome}!\n\n"
+            f"Vi que sua ativacao do {plano_nome} ainda nao foi iniciada.\n"
+            "Segue o caminho rapido para comecar agora:\n"
+            "1) Acessar o e-mail de liberacao\n"
+            "2) Baixar a ferramenta\n"
+            "3) Descompactar com a senha\n"
+            "4) Instalar a ferramenta\n"
+            "5) Ativar o robo\n\n"
+            f"Area do cliente: {area_cliente_url}\n"
+            "Se quiser, fazemos juntos por aqui em tempo real."
+        )
+
+    etapa_num = int(ONBOARDING_STEP_POSITION.get(stage_key) or 0)
+    instrucao = ONBOARDING_WHATSAPP_STEP_GUIDE.get(stage_key) or (
+        "Me chama aqui que te explico passo a passo para concluir essa etapa."
+    )
+    etapa_prefixo = f"etapa {etapa_num}/5" if etapa_num > 0 else "etapa atual"
+
+    return (
+        f"{saudacao}, {primeiro_nome}!\n\n"
+        f"Vi que voce parou na {etapa_prefixo}: {stage_label}.\n\n"
+        f"{instrucao}\n\n"
+        f"Area do cliente: {area_cliente_url}\n"
+        "Se preferir, te acompanho agora para finalizar essa etapa."
+    )
+
+
+def gerar_link_whatsapp_ativacao(payload):
+    telefone_usuario = (payload or {}).get("telefone")
+    if not telefone_usuario:
+        return None
+
+    try:
+        numero = formatar_telefone_whatsapp(telefone_usuario)
+    except ValueError:
+        return None
+
+    mensagem = montar_mensagem_whatsapp_ativacao(payload)
+    return f"https://wa.me/{numero}?text={quote(mensagem)}"
 
 
 def formatar_centavos_brl(valor_centavos):
